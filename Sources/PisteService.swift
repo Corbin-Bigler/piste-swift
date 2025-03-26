@@ -16,8 +16,8 @@ public protocol PisteService: Sendable {
 }
 
 extension PisteService {
-    var function: PisteFunction { Self.function }
-    var version: Int { Self.version }
+    static var function: PisteFunction { Self.function }
+    static var version: Int { Self.version }
     
     func serverbound(encoded: EncodedPisteFrame) -> PisteFrame<ServerBound>? {
         let decoder = HardpackDecoder()
@@ -30,3 +30,13 @@ extension PisteService {
         return PisteFrame(function: encoded.function, version: Int(encoded.version), payload: payload)
     }
 }
+
+
+
+//    public func registerService(
+//        _ service: Service.Type,
+//        handler: @Sendable @escaping (PisteFrame<Service.ServerBound>) async -> PisteResponse<Service.ClientBound>
+//    ) {
+
+//    private(set) var handlers: [PisteFunction: [Int: @Sendable (EncodedPisteFrame) async throws -> EncodedPisteFrame]] = [:]
+//    private(set) var services: [PisteFunction: [Int: any PisteService.Type]] = [:]

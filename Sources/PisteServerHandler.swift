@@ -31,19 +31,42 @@ final class PisteServerHandler: ChannelInboundHandler, @unchecked Sendable {
         context.writeAndFlush(wrapOutboundOut(frame), promise: nil)
     }
 
-    private func processEncoded<T: PisteService>(_ service: T, encoded: EncodedPisteFrame) -> PisteFrame<T.ServerBound>? {
-        return service.serverbound(encoded: encoded)
+    func processHandler<Handler: PisteServiceHandler>(_ handler: Handler, inbound: EncodedPisteFrame) async -> EncodedPisteFrame {
+        if inbound.function != handler.function { fatalError() }
+
+        let decoder = HardpackDecoder()
+        guard let payload = try? decoder.decode(Handler.Service.ServerBound.self, from: inbound.payload) else {
+            return EncodedPisteFrame(function: handler.function, version: VarInt(handler.version), error: PisteError.badFrame)
+        }
+
+        let frame = PisteFrame(function: handler.function, version: Int(handler.version), payload: payload)
+        if frame.version != handler.version {
+            let error = frame.version < handler.version ? PisteError.clientOutdated : PisteError.serverOutdated
+            return EncodedPisteFrame(function: handler.function, version: VarInt(handler.version), error: error)
+        }
+        
+        let response = await handler.handle(inbound: frame)
+        switch response {
+        case .success(let response):
+            let encoder = HardpackEncoder()
+            return EncodedPisteFrame(function: handler.function, version: VarInt(handler.version), payload: try! encoder.encode(response))
+        case .failure(let error):
+            return EncodedPisteFrame(function: handler.function, version: VarInt(handler.version), error: .failure(error))
+        }
     }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         let encoded = unwrapInboundIn(data)
+        print("Received frame: \(encoded)")
+        
         let version = Int(encoded.version)
-        guard let services = server.services[encoded.function], let handlers = server.handlers[encoded.function] else {
+        guard let handlers = server.handlers[encoded.function] else {
             write(context: context, frame: EncodedPisteFrame(function: encoded.function, version: encoded.version, error: PisteError.serviceNotAvailable))
             return
         }
-        guard let service = services[version], let handler = handlers[version] else {
-            let min = services.keys.min() ?? 0
+        
+        guard let handler = handlers[version] else {
+            let min = handlers.keys.min() ?? 0
             if version < min {
                 write(context: context, frame: EncodedPisteFrame(function: encoded.function, version: encoded.version, error: PisteError.clientOutdated))
             } else {
@@ -54,7 +77,7 @@ final class PisteServerHandler: ChannelInboundHandler, @unchecked Sendable {
         
         let promise = context.eventLoop.makePromise(of: EncodedPisteFrame.self)
         promise.completeWithTask {
-            return try await handler(encoded)
+            return await self.processHandler(handler, inbound: encoded)
         }
         promise.futureResult.whenSuccess { response in
             self.write(context: context, frame: response)
@@ -68,7 +91,7 @@ final class PisteServerHandler: ChannelInboundHandler, @unchecked Sendable {
                 )
                 self.write(context: context, frame: errorFrame)
             } else {
-                print("Unknown error: \(error) in service: \(service.function)")
+                print("Unknown error: \(error) in service: \(handler.function)")
             }
         }
     }

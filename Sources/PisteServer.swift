@@ -6,15 +6,14 @@
 //
 
 import Foundation
+import Hardpack
 import NIO
 import NIOSSL
-import Hardpack
 
 public final class PisteServer: @unchecked Sendable {
     private let group = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
-    
-    private(set) var handlers: [PisteFunction: [Int : (EncodedPisteFrame) async throws -> EncodedPisteFrame]] = [:]
-    private(set) var services: [PisteFunction: [Int : any PisteService.Type]] = [:]
+
+    private(set) var handlers: [PisteFunction: [Int: any PisteServiceHandler]] = [:]
 
     private let host: String
     private let port: Int
@@ -23,14 +22,14 @@ public final class PisteServer: @unchecked Sendable {
     public init(host: String, port: Int, cert: String, key: String) throws {
         self.host = host
         self.port = port
-                
+
         let cert = try NIOSSLCertificate.fromPEMFile(cert).map { NIOSSLCertificateSource.certificate($0) }
         let key = try NIOSSLPrivateKey(file: key, format: .pem)
         let tlsConfig = TLSConfiguration.makeServerConfiguration(
             certificateChain: cert,
             privateKey: .privateKey(key)
         )
-        
+
         self.sslContext = try NIOSSLContext(configuration: tlsConfig)
     }
 
@@ -76,32 +75,41 @@ public final class PisteServer: @unchecked Sendable {
         }
         print("Server closed")
     }
-    
-    public func registerService<Service: PisteService>(
-        _ service: Service.Type,
-        handler: @escaping (PisteFrame<Service.ServerBound>
-    ) async throws -> Service.ClientBound) {
-        if handlers[service.function] != nil || services[service.function] != nil {
-            fatalError("Function \(service.function) already registered")
-        }
 
-        services[service.function, default: [:]][service.version] = service
-        handlers[service.function, default: [:]][service.version] = { encoded in
-            if encoded.function != service.function { fatalError() }
-
-            let decoder = HardpackDecoder()
-            guard let payload = try? decoder.decode(Service.ServerBound.self, from: encoded.payload) else {
-                return EncodedPisteFrame(function: service.function, version: VarInt(service.version), error: PisteError.badFrame)
-            }
-            
-            let frame = PisteFrame(function: service.function, version: Int(encoded.version), payload: payload)
-            if frame.version != service.version {
-                let error = frame.version < service.version ? PisteError.clientOutdated : PisteError.serverOutdated
-                return EncodedPisteFrame(function: service.function, version: VarInt(service.version), error: error)
-            }
-            let response = try await handler(frame)
-            let encoder = HardpackEncoder()
-            return EncodedPisteFrame(function: service.function, version: VarInt(service.version), payload: try! encoder.encode(response))
-        }
+    public func register(handler: any PisteServiceHandler) {
+        
     }
+//    public func registerService<Service: PisteService>(
+//        _ service: Service.Type,
+//        handler: @Sendable @escaping (PisteFrame<Service.ServerBound>) async -> PisteResponse<Service.ClientBound>
+//    ) {
+//        if handlers[service.function] != nil || services[service.function] != nil {
+//            fatalError("Function \(service.function) already registered")
+//        }
+//
+//        services[service.function, default: [:]][service.version] = service
+//        handlers[service.function, default: [:]][service.version] = { @Sendable encoded in
+//            if encoded.function != service.function { fatalError() }
+//
+//            let decoder = HardpackDecoder()
+//            guard let payload = try? decoder.decode(Service.ServerBound.self, from: encoded.payload) else {
+//                return EncodedPisteFrame(function: service.function, version: VarInt(service.version), error: PisteError.badFrame)
+//            }
+//
+//            let frame = PisteFrame(function: service.function, version: Int(encoded.version), payload: payload)
+//            if frame.version != service.version {
+//                let error = frame.version < service.version ? PisteError.clientOutdated : PisteError.serverOutdated
+//                return EncodedPisteFrame(function: service.function, version: VarInt(service.version), error: error)
+//            }
+//            
+//            let response = await handler(frame)
+//            switch response {
+//            case .success(let response):
+//                let encoder = HardpackEncoder()
+//                return EncodedPisteFrame(function: service.function, version: VarInt(service.version), payload: try! encoder.encode(response))
+//            case .failure(let error):
+//                return EncodedPisteFrame(function: service.function, version: VarInt(service.version), error: .failure(error))
+//            }
+//        }
+//    }
 }
