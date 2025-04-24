@@ -1,14 +1,11 @@
 //
-//  PisteFrame.swift
+//  PisteFrameHeader.swift
 //  lion-simulator
 //
 //  Created by Corbin Bigler on 4/23/25.
 //
 
-import Foundation
-
-struct PisteFrame<Payload: Codable>: Codable {
+struct PisteFrameHeader: Codable {
     let service: String
     let version: Int
-    let payload: Payload
 }

@@ -1,81 +1,155 @@
 //
 //  PisteClient.swift
-//  SudokuBattles
+//  piste
 //
-//  Created by Corbin Bigler on 3/11/25.
+//  Created by Corbin Bigler on 4/23/25.
 //
 
-import Foundation
 import NIO
-import NIOSSL
+import NIOHTTP1
+import NIOWebSocket
+import Foundation
+import Combine
 
-public final class PisteClient: @unchecked Sendable {
-    private var group: MultiThreadedEventLoopGroup!
+//final class WebSocketClientHandler: ChannelInboundHandler, Sendable {
+//    typealias InboundIn = WebSocketFrame
+//
+//    func channelRead(context: ChannelHandlerContext, data: NIOAny) {
+//        let frame = self.unwrapInboundIn(data)
+//        var data = frame.unmaskedData ?? ByteBuffer()
+//        if let text = data.readString(length: data.readableBytes) {
+//            print("Received: \(text)")
+//        }
+//    }
+//
+//    func handlerAdded(context: ChannelHandlerContext) {
+//        print("WebSocket client handler added.")
+//    }
+//
+//    func errorCaught(context: ChannelHandlerContext, error: Error) {
+//        print("Error: \(error)")
+//        context.close(promise: nil)
+//    }
+//}
+
+public final class PisteClient {
+    private let group: MultiThreadedEventLoopGroup = .singleton
     private let host: String
     private let port: Int
-    private let sslContext: NIOSSLContext
-    private var handler: PisteClientHandler?
+    private var channel: (any Channel)? = nil
 
-    public init(host: String, port: Int) throws {
+    public let isConnected = PassthroughSubject<Bool, Never>()
+    public let receivedText = PassthroughSubject<String, Never>()
+
+    public init(host: String, port: Int) {
         self.host = host
         self.port = port
-
-        // Create TLS configuration without manually loading cert
-        var tlsConfig = TLSConfiguration.makeClientConfiguration()
-        tlsConfig.certificateVerification = .none
-
-        self.sslContext = try NIOSSLContext(configuration: tlsConfig)
     }
 
-    private func clientBootstrap(handler: PisteClientHandler) -> ClientBootstrap {
-        self.group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
-        return ClientBootstrap(group: group)
-            .channelOption(ChannelOptions.socket(IPPROTO_TCP, TCP_NODELAY), value: 1)
-            .channelInitializer { channel in
-                let sslHandler = try! NIOSSLClientHandler(context: self.sslContext, serverHostname: nil)  //self.host)
-                return channel.pipeline.addHandler(sslHandler).flatMap {
-                    channel.pipeline.addHandler(BackPressureHandler()).flatMap {
-                        channel.pipeline.addHandlers([
-                            ByteToMessageHandler(PisteFrameDecoder()),
-                            MessageToByteHandler(PisteFrameEncoder()),
-                            handler,
-                        ])
-                    }
+    public func connect() async throws {
+        let upgradeResult: EventLoopFuture<UpgradeResult> = try await ClientBootstrap(group: self.group)
+            .connect(host: host, port: port) { channel in
+                channel.eventLoop.makeCompletedFuture {
+                    let upgrader = NIOTypedWebSocketClientUpgrader<UpgradeResult>(
+                        upgradePipelineHandler: { channel, _ in
+                            channel.eventLoop.makeCompletedFuture {
+                                let asyncChannel = try NIOAsyncChannel<WebSocketFrame, WebSocketFrame>(
+                                    wrappingChannelSynchronously: channel
+                                )
+                                return UpgradeResult.websocket(asyncChannel)
+                            }
+                        }
+                    )
+
+                    var headers = HTTPHeaders()
+                    headers.add(name: "Content-Type", value: "text/plain; charset=utf-8")
+                    headers.add(name: "Content-Length", value: "0")
+
+                    let head = HTTPRequestHead(
+                        version: .http1_1,
+                        method: .GET,
+                        uri: "/",
+                        headers: headers
+                    )
+
+                    let upgradeConfig = NIOTypedHTTPClientUpgradeConfiguration(
+                        upgradeRequestHead: head,
+                        upgraders: [upgrader],
+                        notUpgradingCompletionHandler: { channel in
+                            channel.eventLoop.makeCompletedFuture {
+                                UpgradeResult.notUpgraded
+                            }
+                        }
+                    )
+
+                    return try channel.pipeline.syncOperations
+                        .configureUpgradableHTTPClientPipeline(
+                            configuration: .init(upgradeConfiguration: upgradeConfig)
+                        )
                 }
             }
+
+        try await handleUpgradeResult(upgradeResult)
     }
 
-    public func run() async throws {
-        do {
-            let handler = PisteClientHandler()
-            let channel = try await clientBootstrap(handler: handler).connect(host: host, port: port).get()
-            self.handler = handler
-            print("Connected to \(host):\(port)")
+    public func disconnect() {
+        Task {
+            try? await channel?.close()
+            isConnected.send(false)
+        }
+    }
+
+    public func send(data: Data) async throws {
+        guard let channel = channel else { throw WebSocketError.notConnected }
+        let buffer = ByteBuffer(bytes: data)
+        let frame = WebSocketFrame(fin: true, opcode: .binary, data: buffer)
+        try await channel.write(frame)
+    }
+
+    private func handleUpgradeResult(_ future: EventLoopFuture<UpgradeResult>) async throws {
+        switch try await future.get() {
+        case .websocket(let wsChannel):
+            self.channel = wsChannel.channel
+            isConnected.send(true)
             Task {
-                do {
-                    try await channel.closeFuture.get()
-                } catch {
-                    print(error)
+                await listen(wsChannel)
+            }
+        case .notUpgraded:
+            throw WebSocketError.upgradeFailed
+        }
+    }
+
+    private func listen(_ channel: NIOAsyncChannel<WebSocketFrame, WebSocketFrame>) async {
+        do {
+            for try await frame in channel.inbound {
+                switch frame.opcode {
+                case .text:
+                    if let text = frame.data.getString(at: 0, length: frame.data.readableBytes) {
+                        receivedText.send(text)
+                    }
+                case .pong:
+                    print("Pong received.")
+                case .connectionClose:
+                    print("Connection closed by server.")
+                    isConnected.send(false)
+                    return
+                default:
+                    break
                 }
-                self.handler = nil
             }
         } catch {
-            throw error
+            print("Error while listening: \(error)")
+            isConnected.send(false)
         }
     }
 
-    public func send(frame: EncodedPisteFrame) {
-        guard let handler else { return }
-        handler.write(frame: frame)
+    enum WebSocketError: Error {
+        case notConnected
+        case upgradeFailed
     }
 
-    public func shutdown() {
-        do {
-            try group.syncShutdownGracefully()
-        } catch let error {
-            print("Could not shutdown gracefully - forcing exit (\(error.localizedDescription))")
-            exit(0)
-        }
-        print("Client closed")
+    enum UpgradeResult {
+        case websocket(NIOAsyncChannel<WebSocketFrame, WebSocketFrame>)
+        case notUpgraded
     }
 }
