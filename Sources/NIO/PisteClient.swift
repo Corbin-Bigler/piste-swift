@@ -1,0 +1,159 @@
+//
+//  PisteClient.swift
+//  test-client
+//
+//  Created by Corbin Bigler on 4/24/25.
+//
+
+import Foundation
+@preconcurrency import NIO
+@preconcurrency import NIOHTTP1
+@preconcurrency import NIOWebSocket
+@preconcurrency import Combine
+import SwiftCBOR
+
+public enum PersistentServiceResponse<Clientbound> {
+    case response(Clientbound)
+    case error(id: String, message: String?)
+}
+
+public final class PisteClient: @unchecked Sendable {
+    private static let websocketHandshakeTimeout = 10.0
+    private static let defaultVersions = [
+        PisteVersionsService.id: [PisteVersionsService.version],
+        PisteInformationService.id: [PisteInformationService.version]
+    ]
+    private let group = MultiThreadedEventLoopGroup.singleton
+    
+    private let host: String
+    private let port: Int
+    private let path: String
+    
+    private var channel: (any Channel)?
+    
+    private(set) var versions: [String: [Int]] = defaultVersions
+    
+    private(set) var services: [String: [Int: any PisteService.Type]] = [:]
+    private(set) var requests: [String: [Int: AnySafeThrowingContinuation]] = [:]
+    private(set) var subjects: [String: [Int: PassthroughSubject<, Never>]] = [:]
+    
+    public let isConnected = PassthroughSubject<Bool, Never>()
+
+    public init(host: String, port: Int, path: String) {
+        self.host = host
+        self.port = port
+        self.path = path
+    }
+    
+    private func _send<Service: PisteService>(_ serverbound: Service.Serverbound, for service: Service.Type) async throws {
+        guard let channel, channel.isActive else { throw PisteClientError.disconnected }
+        
+        let data = try CodableCBOREncoder().encode(service.serverbound(serverbound))
+        var buffer = channel.allocator.buffer(capacity: data.count)
+        buffer.writeBytes(data)
+        
+        try await channel.writeAndFlush(WebSocketFrame(fin: true, opcode: .binary, maskKey: .random(), data: buffer))
+    }
+    
+    private func onDisconnect() {
+        self.channel = nil
+        self.versions = Self.defaultVersions
+    }
+
+    public func connect() async throws {
+        try await withSafeThrowingContinuation { continuation in
+            let bootstrap = ClientBootstrap(group: self.group)
+                .channelInitializer { channel in
+                    let websocketUpgrader = NIOWebSocketClientUpgrader(
+                        upgradePipelineHandler: { channel, _ in
+                            return channel.pipeline.addHandler(ClientWebSocketHandler(client: self)).map {
+                                Task {
+                                    do {
+                                        self.versions = try await self.request(for: PisteVersionsService.self)
+                                        continuation.resume()
+                                    } catch {
+                                        continuation.resume(throwing: PisteClientError.versionsHandshake)
+                                    }
+                                }
+                            }
+                        }
+                    )
+
+                    let handshakeHandler = ClientWebsocketHandshakeHandler(
+                        host: self.host,
+                        port: self.port,
+                        path: self.path
+                    )
+
+                    let upgradeConfig: NIOHTTPClientUpgradeConfiguration = (
+                        upgraders: [websocketUpgrader],
+                        completionHandler: { context in
+                            _ = context.pipeline.removeHandler(handshakeHandler)
+                        }
+                    )
+
+                    return channel.pipeline.addHTTPClientHandlers(withClientUpgrade: upgradeConfig).flatMap {
+                        channel.pipeline.addHandler(handshakeHandler)
+                    }
+                }
+            
+            Task {
+                try await Task.sleep(for: .seconds(Self.websocketHandshakeTimeout))
+                continuation.resume(throwing: PisteClientError.timeout)
+            }
+
+            bootstrap.connect(host: "localhost", port: 8888).whenComplete { result in
+                switch result {
+                case .failure(let error):
+                    continuation.resume(throwing: error)
+                case .success(let channel):
+                    self.channel = channel
+                    self.isConnected.send(true)
+
+                    channel.closeFuture.whenComplete { _ in
+                        self.isConnected.send(false)
+                        self.channel = nil
+                    }
+                }
+            }
+        }
+    }
+    
+    public func disconnect() {
+        self.channel?.close(promise: nil)
+    }
+    
+    public func request<Service: TransientPisteService>(_ serverbound: Service.Serverbound, for service: Service.Type) async throws -> Service.Clientbound {
+        guard let serviceVersions = versions[service.id] else { throw PisteClientError.unsupportedService }
+        guard serviceVersions.contains(service.version) else { throw PisteClientError.unsupportedVersion }
+        
+        return try await withSafeThrowingContinuation { continuation in
+            self.group.next().execute {
+                self.services[Service.id, default: [:]][Service.version] = Service.self
+                self.requests[Service.id, default: [:]][Service.version] = continuation
+                
+                Task {
+                    do { try await self._send(serverbound, for: service) }
+                    catch { continuation.resume(throwing: error) }
+                }
+            }
+        }
+    }
+    public func request<Service: TransientPisteService>(for service: Service.Type) async throws -> Service.Clientbound where Service.Serverbound == Empty {
+        return try await self.request(Empty(), for: service)
+    }
+    
+    public func publisher<Service: PersistentPisteService>(service: Service.Type) -> PassthroughSubject<PersistentServiceResponse<Service.Clientbound>, Never> {
+        let subject = PassthroughSubject<PersistentServiceResponse<Service.Clientbound>, Never>()
+        group.next().execute {
+            self.services[Service.id, default: [:]][Service.version] = Service.self
+            self.subjects[Service.id, default: [:]][Service.version] = subject
+        }
+        return subject
+    }
+    
+    public func send<Service: PersistentPisteService>(_ serverbound: Service.Serverbound, for service: Service.Type) async throws {
+        try await _send(serverbound, for: service)
+    }
+
+}

@@ -11,9 +11,9 @@ public protocol PisteHandler {
     static var title: String { get }
     static var description: String { get }
 
-    init()
+    init(context: PisteContext<Service>)
 
-    func handle(context: PisteContext<Self>, serverbound: Service.Serverbound) throws
+    func handle(serverbound: Service.Serverbound) throws
 }
 extension PisteHandler {
     static var version: Int { Service.version }

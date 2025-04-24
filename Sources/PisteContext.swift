@@ -6,11 +6,11 @@
 //
 
 import SwiftLogger
-import NIOCore
+@preconcurrency import NIOCore
 import NIOWebSocket
-import SwiftCBOR
+@preconcurrency import SwiftCBOR
 
-public struct PisteContext<Handler: PisteHandler> {
+public struct PisteContext<Service: PisteService>: @unchecked Sendable {
     private let context: ChannelHandlerContext
     let server: PisteServer
     
@@ -19,24 +19,33 @@ public struct PisteContext<Handler: PisteHandler> {
         self.server = server
     }
     
-    private func write<Frame: Codable>(frame: Frame) {
-        do {
-            let data = try CodableCBOREncoder().encode(frame)
-            var buffer = context.channel.allocator.buffer(capacity: data.count)
-            buffer.writeBytes(data)
-            context.writeAndFlush(NIOAny(WebSocketFrame(fin: true, opcode: .binary, data: buffer)), promise: nil)
-        } catch {
-            Logger.fault(error)
+    private func write<Frame: Codable & Sendable>(frame: Frame) {
+        context.eventLoop.execute {
+            do {
+                let data = try CodableCBOREncoder().encode(frame)
+                var buffer = context.channel.allocator.buffer(capacity: data.count)
+                buffer.writeBytes(data)
+                
+                context.writeAndFlush(NIOAny(WebSocketFrame(fin: true, opcode: .binary, data: buffer)), promise: nil)
+            } catch {
+                Logger.fault(error)
+            }
         }
     }
     
     public func close() {
-        _ = context.close()
+        context.eventLoop.execute {
+            _ = context.close()
+        }
     }
-    public func respond(with payload: Handler.Service.Clientbound) {
-        write(frame: Handler.Service.clientbound(payload))
+    public func respond(with payload: Service.Clientbound) {
+        context.eventLoop.execute {
+            write(frame: Service.clientbound(payload))
+        }
     }
     public func error(_ error: String, message: String? = nil) {
-        write(frame: Handler.Service.error(error, message: message))
+        context.eventLoop.execute {
+            write(frame: Service.error(error, message: message))
+        }
     }
 }

@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct PisteFrame<Payload: Codable>: Codable {
+struct PisteFrame<Payload: Codable & Sendable>: Codable, Sendable {
     let service: String
     let version: Int
     let payload: Payload

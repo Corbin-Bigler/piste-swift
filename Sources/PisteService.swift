@@ -8,14 +8,13 @@
 import Foundation
 
 public protocol PisteService {
-    associatedtype Serverbound: Codable = Empty
-    associatedtype Clientbound: Codable = Empty
+    associatedtype Serverbound: Codable, Sendable = Empty
+    associatedtype Clientbound: Codable, Sendable = Empty
     
     static var version: Int { get }
     static var id: String { get }
     static var persistent: Bool { get }
 }
-
 extension PisteService {
     static func serverbound(_ serverbound: Serverbound) -> PisteFrame<Serverbound> {
         return PisteFrame(service: id, version: version, payload: serverbound)
@@ -27,3 +26,9 @@ extension PisteService {
         return PisteErrorFrame(error: error, service: id, version: version, message: message)
     }
 }
+
+public protocol PersistentPisteService: PisteService {}
+public extension PersistentPisteService { static var persistent: Bool { true } }
+
+public protocol TransientPisteService: PisteService {}
+public extension TransientPisteService { static var persistent: Bool { false } }

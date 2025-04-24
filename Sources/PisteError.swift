@@ -7,7 +7,8 @@
 
 import Foundation
 
-public protocol PisteError: Error, RawRepresentable where RawValue == String {
+public protocol PisteError: Error {
+    var id: String { get }
     var message: String? { get }
 }
 public extension PisteError {
