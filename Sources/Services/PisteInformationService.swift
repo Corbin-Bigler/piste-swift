@@ -16,7 +16,7 @@ public final class PisteInformationService: TransientPisteService {
         public let persistent: Bool
     }
 }
-struct PisteInformationHandler: PisteHandler {
+struct PisteInformationHandler: TransientPisteHandler {
     typealias Service = PisteInformationService
     
     static let title: String = "Piste Information Service"
@@ -27,7 +27,7 @@ struct PisteInformationHandler: PisteHandler {
         self.connection = connection
     }
     
-    func handle(channel: PisteChannel<Service>, inbound: Empty) throws {
-        channel.respond(with: connection.handlers.mapValues { $0.mapValues { .init(id: $0.id, version: $0.version, persistent: $0.persistent)} })
+    func handle(inbound: Empty) async throws -> Service.Clientbound{
+        return connection.handlers.mapValues { $0.mapValues { .init(id: $0.id, version: $0.version, persistent: $0.persistent)} }
     }
 }

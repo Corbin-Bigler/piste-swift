@@ -11,7 +11,7 @@ public final class PisteVersionsService: TransientPisteService {
     
     public typealias Clientbound = [String: [Int]]
 }
-struct PisteVersionsHandler: PisteHandler {
+struct PisteVersionsHandler: TransientPisteHandler {
     typealias Service = PisteVersionsService
             
     static let title: String = "Piste Versions Service"
@@ -22,7 +22,7 @@ struct PisteVersionsHandler: PisteHandler {
         self.connection = connection
     }
     
-    func handle(channel: PisteChannel<Service>, inbound: Empty) throws {
-        channel.respond(with: connection.handlers.mapValues { Array($0.keys) })
+    func handle(inbound: Empty) async throws -> Service.Clientbound {
+        return connection.handlers.mapValues { Array($0.keys) }
     }
 }

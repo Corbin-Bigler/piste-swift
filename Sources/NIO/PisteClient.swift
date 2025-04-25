@@ -35,9 +35,10 @@ public final class PisteClient: @unchecked Sendable {
     
     private(set) var versions: [String: [Int]] = defaultVersions
     
-    private(set) var services: [String: [Int: any PisteService.Type]] = [:]
     private(set) var requests: [String: [Int: AnySafeThrowingContinuation]] = [:]
+    private(set) var requestServices: [String: [Int: any TransientPisteService.Type]] = [:]
     private(set) var subjects: [String: [Int: Any]] = [:]
+    private(set) var subjectServices: [String: [Int: any PersistentPisteService.Type]] = [:]
     
     public let isConnected = PassthroughSubject<Bool, Never>()
 
@@ -61,7 +62,8 @@ public final class PisteClient: @unchecked Sendable {
     private func onDisconnect() {
         self.channel = nil
         self.versions = Self.defaultVersions
-        self.services = [:]
+        self.requestServices = [:]
+        self.subjectServices = [:]
         self.requests = [:]
         self.subjects = [:]
     }
@@ -154,7 +156,7 @@ public final class PisteClient: @unchecked Sendable {
         
         return try await withSafeThrowingContinuation { continuation in
             self.group.next().execute {
-                self.services[Service.id, default: [:]][Service.version] = Service.self
+                self.requestServices[Service.id, default: [:]][Service.version] = Service.self
                 self.requests[Service.id, default: [:]][Service.version] = continuation
                 
                 Task {
@@ -171,7 +173,7 @@ public final class PisteClient: @unchecked Sendable {
     public func publisher<Service: PersistentPisteService>(service: Service.Type) -> PassthroughSubject<PersistentServiceResponse<Service.Clientbound>, Never> {
         let subject = PassthroughSubject<PersistentServiceResponse<Service.Clientbound>, Never>()
         group.next().execute {
-            self.services[Service.id, default: [:]][Service.version] = Service.self
+            self.subjectServices[Service.id, default: [:]][Service.version] = Service.self
             self.subjects[Service.id, default: [:]][Service.version] = subject
         }
         return subject

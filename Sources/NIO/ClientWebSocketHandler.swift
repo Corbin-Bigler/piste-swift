@@ -23,41 +23,50 @@ final class ClientWebSocketHandler: ChannelInboundHandler, @unchecked Sendable {
         self.client = client
     }
     
-    private func handle<Service: PisteService>(_ data: Data, headers: PisteFrameHeader, for service: Service.Type) {
+    private func handle<Service: TransientPisteService>(_ data: Data, headers: PisteFrameHeader, for service: Service.Type) {
         do {
             let clientbound = try decoder.decode(PisteFrame<Service.Clientbound>.self, from: data).payload
-            if service.persistent {
-                guard let subject = client.subjects[headers.service]?[headers.version] as? PassthroughSubject<PersistentServiceResponse<Service.Clientbound>, Never> else { return }
-                subject.send(.response(clientbound))
-            } else {
-                guard let request = client.requests[headers.service]?[headers.version] else { return }
-                try! request.resume(returning: clientbound)
-            }
+            guard let request = client.requests[headers.service]?[headers.version] else { return }
+            try! request.resume(returning: clientbound)
         } catch {
             if let error = try? decoder.decode(PisteErrorFrame.self, from: data) {
-                if service.persistent {
-                    guard let subject = client.subjects[headers.service]?[headers.version] as? PassthroughSubject<PersistentServiceResponse<Service.Clientbound>, Never> else { return }
-                    subject.send(.error(id: error.error, message: error.message))
-                } else {
-                    guard let request = client.requests[headers.service]?[headers.version] else { return }
-                    request.resume(throwing: PisteClientError.error(id: error.error, message: error.message))
-                }
+                guard let request = client.requests[headers.service]?[headers.version] else { return }
+                request.resume(throwing: PisteClientError.error(id: error.error, message: error.message))
             } else {
                 Logger.fault(error)
             }
         }
     }
+    private func handle<Service: PersistentPisteService>(_ data: Data, headers: PisteFrameHeader, for service: Service.Type) {
+        do {
+            let clientbound = try decoder.decode(PisteFrame<Service.Clientbound>.self, from: data).payload
+            guard let subject = client.subjects[headers.service]?[headers.version] as? PassthroughSubject<PersistentServiceResponse<Service.Clientbound>, Never> else { return }
+            subject.send(.response(clientbound))
+        } catch {
+            if let error = try? decoder.decode(PisteErrorFrame.self, from: data) {
+                guard let subject = client.subjects[headers.service]?[headers.version] as? PassthroughSubject<PersistentServiceResponse<Service.Clientbound>, Never> else { return }
+                subject.send(.error(id: error.error, message: error.message))
+            } else {
+                Logger.fault(error)
+            }
+        }
+    }
+
+
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         let frame = unwrapInboundIn(data)
 
         if frame.opcode == .binary {
             var buffer = frame.unmaskedData
             guard let data = buffer.readBytes(length: buffer.readableBytes).flatMap({ Data($0) }),
-                  let headers = try? decoder.decode(PisteFrameHeader.self, from: data),
-                  let service = client.services[headers.service]?[headers.version]
+                  let headers = try? decoder.decode(PisteFrameHeader.self, from: data)
             else { return }
-                        
-            handle(data, headers: headers, for: service)
+            
+            if let transientService = client.requestServices[headers.service]?[headers.version] {
+                handle(data, headers: headers, for: transientService)
+            } else if let persistentServices = client.subjectServices[headers.service]?[headers.version] {
+                handle(data, headers: headers, for: persistentServices)
+            }
         }
     }
 
