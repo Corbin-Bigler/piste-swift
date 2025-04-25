@@ -18,10 +18,17 @@ final class ServerWebSocketHandler: ChannelInboundHandler, @unchecked Sendable {
     private let decoder = CodableCBORDecoder()
     
     private let server: PisteServer
-    private var handlers: [String: [Int : any PisteHandler]] = [:]
+    private var connection: PisteConnection?
     
     init(server: PisteServer) {
         self.server = server
+    }
+    
+    func handlerAdded(context: ChannelHandlerContext) {
+        let connection = PisteConnection(context: context)
+    
+        self.server.builder(connection)
+        self.connection = connection
     }
 
     private func write(context: ChannelHandlerContext, error: PisteErrorFrame) {
@@ -31,31 +38,28 @@ final class ServerWebSocketHandler: ChannelInboundHandler, @unchecked Sendable {
             context.writeAndFlush(NIOAny(WebSocketFrame(fin: true, opcode: .binary, data: buffer)), promise: nil)
         }
     }
-    private func handle<Handler: PisteHandler>(_ data: Data, context: ChannelHandlerContext, for handler: Handler.Type) {
-        
-        let context = PisteContext<Handler.Service>(context: context, server: server)
+    private func handle<Handler: PisteHandler>(_ data: Data, context: ChannelHandlerContext, for handler: Handler) {
+        guard let connection else { return }
+        let pisteChannel = PisteChannel<Handler.Service>(context: context)
         guard let serverbound = try? decoder.decode(PisteFrame<Handler.Service.Serverbound>.self, from: data).payload else {
-            context.error(PisteServerError.badPayload.id, message: PisteServerError.badPayload.message)
+            pisteChannel.error(PisteServerError.badPayload.id, message: PisteServerError.badPayload.message)
             return
         }
-        
-        if handlers[handler.id]?[handler.version] == nil {
-            handlers[handler.id, default: [:]][handler.version] = handler.init(context: context)
-        }
-        
+
         do {
-            try (handlers[handler.id]![handler.version]! as! Handler).handle(serverbound: serverbound)
+            try (connection.handlers[handler.id]![handler.version]! as! Handler).handle(channel: pisteChannel, inbound: serverbound)
         } catch {
             if let pisteError = error as? any PisteError {
-                context.error(pisteError.id, message: pisteError.message)
+                pisteChannel.error(pisteError.id, message: pisteError.message)
             } else {
                 Logger.error("Unknown error caught: \(error)")
-                context.error(PisteServerError.internalServerError.id, message: PisteServerError.internalServerError.message)
+                pisteChannel.error(PisteServerError.internalServerError.id, message: PisteServerError.internalServerError.message)
             }
         }
     }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
+        guard let connection else { return }
         let frame = unwrapInboundIn(data)
 
         if frame.opcode == .binary {
@@ -67,7 +71,7 @@ final class ServerWebSocketHandler: ChannelInboundHandler, @unchecked Sendable {
                 write(context: context, error: PisteErrorFrame(error: "bad-frame", message: "Invalid frame format"))
                 return
             }
-            guard let serviceVersions = server.handlers[headers.service] else {
+            guard let handlerVersions = connection.handlers[headers.service] else {
                 let error = PisteServerError.unsupportedService(service: headers.service)
                 write(
                     context: context,
@@ -75,7 +79,7 @@ final class ServerWebSocketHandler: ChannelInboundHandler, @unchecked Sendable {
                 )
                 return
             }
-            guard let handler = serviceVersions[headers.version] else {
+            guard let handler = handlerVersions[headers.version] else {
                 let error = PisteServerError.unsupportedVersion(service: headers.service, version: headers.version)
                 write(
                     context: context,
@@ -83,7 +87,7 @@ final class ServerWebSocketHandler: ChannelInboundHandler, @unchecked Sendable {
                 )
                 return
             }
-                  
+
             handle(data, context: context, for: handler)
         }
     }

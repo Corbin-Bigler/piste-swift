@@ -5,18 +5,16 @@
 //  Created by Corbin Bigler on 4/23/25.
 //
 
-public protocol PisteHandler {
+public protocol PisteHandler: Sendable {
     associatedtype Service: PisteService
     
     static var title: String { get }
     static var description: String { get }
-
-    init(context: PisteContext<Service>)
-
-    func handle(serverbound: Service.Serverbound) throws
+    
+    func handle(channel: PisteChannel<Service>, inbound: Service.Serverbound) throws
 }
 extension PisteHandler {
-    static var version: Int { Service.version }
-    static var id: String { Service.id }
-    static var persistent: Bool { Service.persistent }
+    var version: Int { Service.version }
+    var id: String { Service.id }
+    var persistent: Bool { Service.persistent }
 }

@@ -10,42 +10,40 @@ import SwiftLogger
 import NIOWebSocket
 @preconcurrency import SwiftCBOR
 
-public struct PisteContext<Service: PisteService>: @unchecked Sendable {
+public class PisteChannel<Service: PisteService>: @unchecked Sendable {
     private let context: ChannelHandlerContext
-    let server: PisteServer
     
-    init(context: ChannelHandlerContext, server: PisteServer) {
+    init(context: ChannelHandlerContext) {
         self.context = context
-        self.server = server
     }
     
     private func write<Frame: Codable & Sendable>(frame: Frame) {
         context.eventLoop.execute {
             do {
                 let data = try CodableCBOREncoder().encode(frame)
-                var buffer = context.channel.allocator.buffer(capacity: data.count)
+                var buffer = self.context.channel.allocator.buffer(capacity: data.count)
                 buffer.writeBytes(data)
                 
-                context.writeAndFlush(NIOAny(WebSocketFrame(fin: true, opcode: .binary, data: buffer)), promise: nil)
+                self.context.writeAndFlush(NIOAny(WebSocketFrame(fin: true, opcode: .binary, data: buffer)), promise: nil)
             } catch {
                 Logger.fault(error)
             }
         }
     }
     
-    public func close() {
-        context.eventLoop.execute {
-            _ = context.close()
-        }
-    }
     public func respond(with payload: Service.Clientbound) {
         context.eventLoop.execute {
-            write(frame: Service.clientbound(payload))
+            self.write(frame: Service.clientbound(payload))
         }
     }
+    
+    public func respond() where Service.Clientbound == Empty {
+        respond(with: Empty())
+    }
+
     public func error(_ error: String, message: String? = nil) {
         context.eventLoop.execute {
-            write(frame: Service.error(error, message: message))
+            self.write(frame: Service.error(error, message: message))
         }
     }
 }

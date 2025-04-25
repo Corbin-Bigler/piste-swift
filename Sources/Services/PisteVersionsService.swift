@@ -17,9 +17,12 @@ struct PisteVersionsHandler: PisteHandler {
     static let title: String = "Piste Versions Service"
     static let description: String = "Returns the versions of services supported by server"
     
-    let context: PisteContext<Service>
+    private let connection: PisteConnection
+    init(connection: PisteConnection) {
+        self.connection = connection
+    }
     
-    func handle(serverbound: Empty) throws {
-        context.respond(with: context.server.handlers.mapValues { Array($0.keys) })
+    func handle(channel: PisteChannel<Service>, inbound: Empty) throws {
+        channel.respond(with: connection.handlers.mapValues { Array($0.keys) })
     }
 }

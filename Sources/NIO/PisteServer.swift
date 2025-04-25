@@ -14,33 +14,28 @@ import SwiftCBOR
 @preconcurrency import NIOSSL
 
 public class PisteServer: @unchecked Sendable {
+    private static let path = "/"
+    
     private let group = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
     private let host: String
     private let port: Int
-    private let path: String
     private let cert: Data
     private let key: Data
     
-    private(set) var handlers: [String: [Int : any PisteHandler.Type]] = [:]
+    let builder: (PisteConnection) -> Void
 
-    public init(host: String, port: Int, path: String, cert: Data, key: Data) {
+    public init(host: String, port: Int, cert: Data, key: Data, app: @Sendable @escaping (PisteConnection) -> Void) {
         self.host = host
         self.port = port
-        self.path = path
         self.cert = cert
         self.key = key
-
-        self.register(handler: PisteVersionsHandler.self)
-        self.register(handler: PisteInformationHandler.self)
-    }
-    
-    public func register(handler: any PisteHandler.Type) {
-        guard handlers[handler.id]?[handler.version] == nil else {
-            fatalError("Trying to reregister handler: \(handler.id)-\(handler.version)")
+        self.builder = { connection in
+            connection.register(PisteVersionsHandler(connection: connection))
+            connection.register(PisteInformationHandler(connection: connection))
+            app(connection)
         }
-        handlers[handler.id, default: [:]][handler.version] = handler
     }
-    
+        
     public func run() async throws {
         // Load certificate and key
         let cert = try NIOSSLCertificate.fromPEMBytes([UInt8](self.cert))
@@ -55,14 +50,15 @@ public class PisteServer: @unchecked Sendable {
         
         let webSocketUpgrader = NIOWebSocketServerUpgrader(
             shouldUpgrade: { channel, head in
-                if head.uri == self.path {
+                if head.uri == Self.path {
                     return channel.eventLoop.makeSucceededFuture([:])
                 } else {
                     return channel.eventLoop.makeFailedFuture(NIOWebSocketUpgradeError.invalidUpgradeHeader)
                 }
             },
             upgradePipelineHandler: { channel, req in
-                return channel.pipeline.addHandler(ServerWebSocketHandler(server: self))
+                let handler = ServerWebSocketHandler(server: self)
+                return channel.pipeline.addHandler(handler)
             }
         )
 
@@ -70,7 +66,7 @@ public class PisteServer: @unchecked Sendable {
             .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
             .childChannelInitializer { channel in
                 let sslHandler = NIOSSLServerHandler(context: sslContext)
-                let pathFilterHandler = ServerWebsocketHandshakeHandler(path: self.path)
+                let pathFilterHandler = ServerWebsocketHandshakeHandler(path: Self.path)
                 return channel.pipeline.addHandler(sslHandler).flatMap {
                     channel.pipeline.configureHTTPServerPipeline(
                         withServerUpgrade: (
@@ -87,7 +83,7 @@ public class PisteServer: @unchecked Sendable {
             }
 
         let channel = try await bootstrap.bind(host: host, port: port).get()
-        Logger.info("Server listening on wss://\(self.host):\(self.port)\(self.path)")
+        Logger.info("Server listening on wss://\(self.host):\(self.port)\(Self.path)")
 
         try await channel.closeFuture.get()
     }

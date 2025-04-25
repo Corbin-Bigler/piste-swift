@@ -48,10 +48,10 @@ public final class PisteClient: @unchecked Sendable {
         self.secure = secure
     }
     
-    private func _send<Service: PisteService>(_ serverbound: Service.Serverbound, for service: Service.Type) async throws {
+    private func _send<Service: PisteService>(_ outbound: Service.Serverbound, for service: Service.Type) async throws {
         guard let channel, channel.isActive else { throw PisteClientError.disconnected }
         
-        let data = try CodableCBOREncoder().encode(service.serverbound(serverbound))
+        let data = try CodableCBOREncoder().encode(service.serverbound(outbound))
         var buffer = channel.allocator.buffer(capacity: data.count)
         buffer.writeBytes(data)
         
@@ -61,6 +61,9 @@ public final class PisteClient: @unchecked Sendable {
     private func onDisconnect() {
         self.channel = nil
         self.versions = Self.defaultVersions
+        self.services = [:]
+        self.requests = [:]
+        self.subjects = [:]
     }
 
     public func connect() async throws {

@@ -22,9 +22,12 @@ struct PisteInformationHandler: PisteHandler {
     static let title: String = "Piste Information Service"
     static let description: String = "Returns the information of services supported by server"
     
-    let context: PisteContext<Service>
+    private let connection: PisteConnection
+    init(connection: PisteConnection) {
+        self.connection = connection
+    }
     
-    func handle(serverbound: Empty) throws {
-        context.respond(with: context.server.handlers.mapValues { $0.mapValues { .init(id: $0.id, version: $0.version, persistent: $0.persistent)} })
+    func handle(channel: PisteChannel<Service>, inbound: Empty) throws {
+        channel.respond(with: connection.handlers.mapValues { $0.mapValues { .init(id: $0.id, version: $0.version, persistent: $0.persistent)} })
     }
 }
