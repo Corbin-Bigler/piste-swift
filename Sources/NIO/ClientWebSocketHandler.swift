@@ -26,10 +26,7 @@ final class ClientWebSocketHandler: ChannelInboundHandler, @unchecked Sendable {
     private func handle<Service: PisteService>(_ data: Data, headers: PisteFrameHeader, for service: Service.Type) {
         do {
             let clientbound = try decoder.decode(PisteFrame<Service.Clientbound>.self, from: data).payload
-            print(clientbound)
             if service.persistent {
-                print(client.subjects[headers.service]?[headers.version])
-                print(client.subjects[headers.service]?[headers.version] as? PassthroughSubject<PersistentServiceResponse<Service.Clientbound>, Never>)
                 guard let subject = client.subjects[headers.service]?[headers.version] as? PassthroughSubject<PersistentServiceResponse<Service.Clientbound>, Never> else { return }
                 subject.send(.response(clientbound))
             } else {

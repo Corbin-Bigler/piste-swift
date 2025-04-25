@@ -25,7 +25,7 @@ final class SafeThrowingContinuation<T: Sendable>: @unchecked Sendable {
         continuation = nil
     }
 
-    func resume() where T == () {
+    func resume() where T == Void {
         resume(returning: ())
     }
 

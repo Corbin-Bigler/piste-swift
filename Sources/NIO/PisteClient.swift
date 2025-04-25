@@ -9,6 +9,7 @@ import Foundation
 @preconcurrency import NIO
 @preconcurrency import NIOHTTP1
 @preconcurrency import NIOWebSocket
+@preconcurrency import NIOSSL
 @preconcurrency import Combine
 import SwiftCBOR
 
@@ -28,6 +29,7 @@ public final class PisteClient: @unchecked Sendable {
     private let host: String
     private let port: Int
     private let path: String
+    private let secure: Bool
     
     private var channel: (any Channel)?
     
@@ -35,14 +37,15 @@ public final class PisteClient: @unchecked Sendable {
     
     private(set) var services: [String: [Int: any PisteService.Type]] = [:]
     private(set) var requests: [String: [Int: AnySafeThrowingContinuation]] = [:]
-    private(set) var subjects: [String: [Int: PassthroughSubject<, Never>]] = [:]
+    private(set) var subjects: [String: [Int: Any]] = [:]
     
     public let isConnected = PassthroughSubject<Bool, Never>()
 
-    public init(host: String, port: Int, path: String) {
+    public init(host: String, port: Int, path: String, secure: Bool = true) {
         self.host = host
         self.port = port
         self.path = path
+        self.secure = secure
     }
     
     private func _send<Service: PisteService>(_ serverbound: Service.Serverbound, for service: Service.Type) async throws {
@@ -61,7 +64,17 @@ public final class PisteClient: @unchecked Sendable {
     }
 
     public func connect() async throws {
-        try await withSafeThrowingContinuation { continuation in
+        return try await withSafeThrowingContinuation { continuation in
+            let sslContext: NIOSSLContext
+            do {
+                var config = TLSConfiguration.makeClientConfiguration()
+                config.certificateVerification = self.secure ? .fullVerification : .none
+                sslContext = try NIOSSLContext(configuration: config)
+            } catch {
+                continuation.resume(throwing: error)
+                return
+            }
+
             let bootstrap = ClientBootstrap(group: self.group)
                 .channelInitializer { channel in
                     let websocketUpgrader = NIOWebSocketClientUpgrader(
@@ -85,15 +98,24 @@ public final class PisteClient: @unchecked Sendable {
                         path: self.path
                     )
 
-                    let upgradeConfig: NIOHTTPClientUpgradeConfiguration = (
-                        upgraders: [websocketUpgrader],
-                        completionHandler: { context in
-                            _ = context.pipeline.removeHandler(handshakeHandler)
-                        }
-                    )
-
-                    return channel.pipeline.addHTTPClientHandlers(withClientUpgrade: upgradeConfig).flatMap {
-                        channel.pipeline.addHandler(handshakeHandler)
+                    
+                    do {
+                        let sslHandler = try NIOSSLClientHandler(context: sslContext, serverHostname: self.host)
+                        return channel.pipeline.addHandler(sslHandler).flatMap {
+                                channel.pipeline.addHTTPClientHandlers(
+                                    withClientUpgrade: (
+                                        upgraders: [websocketUpgrader],
+                                        completionHandler: { context in
+                                            _ = context.pipeline.removeHandler(handshakeHandler)
+                                        }
+                                    )
+                                ).flatMap {
+                                    channel.pipeline.addHandler(handshakeHandler)
+                                }
+                            }
+                    } catch {
+                        continuation.resume(throwing: error)
+                        return channel.eventLoop.makeFailedFuture(error)
                     }
                 }
             
@@ -102,7 +124,7 @@ public final class PisteClient: @unchecked Sendable {
                 continuation.resume(throwing: PisteClientError.timeout)
             }
 
-            bootstrap.connect(host: "localhost", port: 8888).whenComplete { result in
+            bootstrap.connect(host: self.host, port: self.port).whenComplete { result in
                 switch result {
                 case .failure(let error):
                     continuation.resume(throwing: error)
@@ -155,5 +177,5 @@ public final class PisteClient: @unchecked Sendable {
     public func send<Service: PersistentPisteService>(_ serverbound: Service.Serverbound, for service: Service.Type) async throws {
         try await _send(serverbound, for: service)
     }
-
 }
+
