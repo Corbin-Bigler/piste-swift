@@ -17,12 +17,12 @@ struct PisteVersionsHandler: TransientPisteHandler {
     static let title: String = "Piste Versions Service"
     static let description: String = "Returns the versions of services supported by server"
     
-    private let connection: PisteConnection
-    init(connection: PisteConnection) {
-        self.connection = connection
+    private let server: PisteServer
+    init(server: PisteServer) {
+        self.server = server
     }
     
     func handle(inbound: Empty) async throws -> Service.Clientbound {
-        return connection.handlers.mapValues { Array($0.keys) }
+        return server.handlers.mapValues { Array($0.keys) }
     }
 }

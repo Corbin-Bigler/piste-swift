@@ -22,12 +22,12 @@ struct PisteInformationHandler: TransientPisteHandler {
     static let title: String = "Piste Information Service"
     static let description: String = "Returns the information of services supported by server"
     
-    private let connection: PisteConnection
-    init(connection: PisteConnection) {
-        self.connection = connection
+    private let server: PisteServer
+    init(server: PisteServer) {
+        self.server = server
     }
     
     func handle(inbound: Empty) async throws -> Service.Clientbound{
-        return connection.handlers.mapValues { $0.mapValues { .init(id: $0.id, version: $0.version, persistent: $0.persistent)} }
+        return server.handlers.mapValues { $0.mapValues { .init(id: $0.id, version: $0.version, persistent: $0.persistent)} }
     }
 }
