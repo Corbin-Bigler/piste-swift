@@ -1,11 +1,9 @@
 //
 //  PisteError.swift
-//  lion-simulator
+//  piste-swift
 //
-//  Created by Corbin Bigler on 4/23/25.
+//  Created by Corbin Bigler on 4/27/25.
 //
-
-import Foundation
 
 public protocol PisteError: Error {
     var id: String { get }
