@@ -20,7 +20,7 @@ public protocol CallPisteHandler: PisteHandler where Service: CallPisteService {
     func handle(request: Service.Request) async throws -> Service.Response
 }
 public protocol UploadPisteHandler: PisteHandler where Service: UploadPisteService {
-    func handle(request: PassthroughSubject<Service.Request, Error>) throws -> Service.Response
+    func handle(request: PassthroughSubject<Service.Request, Error>) async throws -> Service.Response
 }
 public protocol DownloadPisteHandler: PisteHandler where Service: DownloadPisteService {
     func handle(request: Service.Request) -> PassthroughSubject<Service.Response, Error>

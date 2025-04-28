@@ -14,7 +14,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.0.0"),
-        .package(path: "../../swift-logger")
+        .package(path: "../swift-logger")
     ],
     targets: [
         .target(

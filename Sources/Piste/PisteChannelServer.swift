@@ -16,7 +16,9 @@ public class PisteChannelServer: @unchecked Sendable {
     
     private var onResponse: (Data) -> () = { _ in }
     
+    private var streams: [String : Any] = [:]
     private var cancellables: [String : AnyCancellable] = [:]
+
     private(set) var callHandlers: [String : any CallPisteHandler] = [:]
     private(set) var uploadHandlers: [String : any UploadPisteHandler] = [:]
     private(set) var downloadHandlers: [String : any DownloadPisteHandler] = [:]
@@ -109,7 +111,9 @@ public class PisteChannelServer: @unchecked Sendable {
             return
         }
         
-        cancellables[handler.path] = handler.handle(request: request)
+        let subject = handler.handle(request: request)
+        streams[handler.path] = subject
+        cancellables[handler.path] = subject
             .sink(
                 receiveCompletion: {
                     switch $0 {
@@ -122,9 +126,20 @@ public class PisteChannelServer: @unchecked Sendable {
                 }
             )
     }
+    private func closeStream<Handler: PisteHandler>(error: PisteError?, for handler: Handler) {
+        if let stream = streams[handler.path] as? PassthroughSubject<Handler.Service.Response, Error> {
+            if let error {
+                stream.send(completion: .failure(error))
+            } else {
+                stream.send(completion: .finished)
+            }
+        }
+        streams.removeValue(forKey: handler.path)
+        cancellables.removeValue(forKey: handler.path)
+    }
 
     public func handle(_ data: Data) {
-        if let frame = try? PisteFrame(serializedBytes: data), frame.hasPayload {
+        if let frame = try? PisteFrame(serializedBytes: data), frame.hasPayload, frame.unknownFields.data.isEmpty {
             if let callHandler = callHandlers[frame.path] {
                 handle(payload: frame.payload, for: callHandler)
             } else if let downloadHandler = downloadHandlers[frame.path] {
@@ -132,9 +147,14 @@ public class PisteChannelServer: @unchecked Sendable {
             } else {
                 self.error(PisteServerError.unsupportedService(service: frame.path))
             }
-        } else if let close = try? PisteCloseFrame(serializedBytes: data) {
-            cancellables[close.path]?.cancel()
-            cancellables.removeValue(forKey: close.path)
+        } else if let error = try? PisteErrorFrame(serializedBytes: data), error.unknownFields.data.isEmpty {
+            if let handler = handlers[error.path] {
+                closeStream(error: PisteServerError.clientError(id: error.error, message: error.message), for: handler)
+            }
+        } else if let close = try? PisteCloseFrame(serializedBytes: data), close.unknownFields.data.isEmpty {
+            if let handler = handlers[close.path] {
+                closeStream(error: nil, for: handler)
+            }
         } else {
             self.error(PisteServerError.badFrame)
             return

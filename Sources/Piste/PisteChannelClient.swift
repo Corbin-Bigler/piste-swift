@@ -101,9 +101,6 @@ public final class PisteChannelClient: @unchecked Sendable {
         }
     }
     public func handle(_ data: Data) {
-        print(try? PisteFrame(serializedBytes: data))
-        print(try? PisteFrame(serializedBytes: data).hasPayload)
-        print(try? PisteFrame(serializedBytes: data).unknownFields.data.isEmpty)
         if let frame = try? PisteFrame(serializedBytes: data), frame.hasPayload, frame.unknownFields.data.isEmpty {
             if let service = callServices[frame.path] {
                 handle(payload: frame.payload, for: service)
@@ -112,7 +109,7 @@ public final class PisteChannelClient: @unchecked Sendable {
             }
         } else if let error = try? PisteErrorFrame(serializedBytes: data), error.unknownFields.data.isEmpty {
             if error.hasPath {
-                let clientError = PisteClientError.error(id: error.error, message: error.hasMessage ? error.message : nil)
+                let clientError = PisteClientError.serverError(id: error.error, message: error.hasMessage ? error.message : nil)
                 if let call = calls[error.path] {
                     call.resume(throwing: clientError)
                 } else if let downloadService = downloadServices[error.path] {
@@ -138,11 +135,31 @@ public final class PisteChannelClient: @unchecked Sendable {
         let data: Data = try frame.serializedBytes()
         onRequest(data)
     }
-    private func close(path: String) throws {
-        guard self.downloadServices[path] != nil || self.uploadServices[path] != nil else { return }
-        var frame = PisteCloseFrame()
-        frame.path = path
-        onRequest(try frame.serializedBytes())
+    
+    private func closeStream(path: String, completion: Subscribers.Completion<Error>) throws {
+        queue.sync {
+            guard self.downloadServices[path] != nil || self.uploadServices[path] != nil || self.streamServices[path] != nil else { return }
+            self.uploads[path]?.resume(throwing: PisteClientError.cancelled)
+            self.uploads.removeValue(forKey: path)
+            self.uploadServices.removeValue(forKey: path)
+            self.downloads.removeValue(forKey: path)
+            self.downloadServices.removeValue(forKey: path)
+            self.streams.removeValue(forKey: path)
+            self.streamServices.removeValue(forKey: path)
+        }
+
+        if case .failure(let error) = completion {
+            let error = error as? PisteError ?? PisteClientError.internalClientError
+            var frame = PisteErrorFrame()
+            frame.path = path
+            frame.error = error.id
+            if let message = error.message { frame.message = message }
+            onRequest(try frame.serializedBytes())
+        } else {
+            var frame = PisteCloseFrame()
+            frame.path = path
+            onRequest(try frame.serializedBytes())
+        }
     }
     public func call<Service: CallPisteService>(_ request: Service.Request, for service: Service.Type) async throws -> Service.Response {
         if service != PisteGetServicesService.self {
@@ -187,12 +204,43 @@ public final class PisteChannelClient: @unchecked Sendable {
         
         subject
             .sink(
-                receiveCompletion: { _ in
-                    try? self.close(path: service.path)
+                receiveCompletion: {
+                    try? self.closeStream(path: service.path, completion: $0)
                 },
                 receiveValue: { _ in }
             )
             .store(in: &cancellables)
         return subject
+    }
+    public func upload<Service: UploadPisteService>(_ subject: PassthroughSubject<Service.Request, Error>, for service: Service.Type) async throws -> Service.Response {
+        guard try await getServices().contains(service.path) else { throw PisteClientError.unsupportedService }
+        try closeStream(path: service.path, completion: .failure(PisteClientError.cancelled))
+        
+        subject
+            .sink(
+                receiveCompletion: {
+                    try? self.closeStream(path: service.path, completion: $0)
+                },
+                receiveValue: {
+                    print("\($0)")
+                    do {
+                        try self.send(path: service.path, payload: $0)
+                    } catch {
+                        self.uploads[service.path]?.resume(throwing: error)
+                        self.queue.async {
+                            self.uploads.removeValue(forKey: service.path)
+                            self.uploadServices.removeValue(forKey: service.path)
+                        }
+                    }
+                }
+            )
+            .store(in: &self.cancellables)
+
+        return try await withSafeThrowingContinuation { continuation in
+            self.queue.async {
+                self.uploads[service.path] = continuation
+                self.uploadServices[service.path] = Service.self
+            }
+        }
     }
 }
