@@ -9,8 +9,8 @@ import SwiftProtobuf
 
 public protocol PisteService {
     static var path: String { get }
-    associatedtype Request: SwiftProtobuf.Message
-    associatedtype Response: SwiftProtobuf.Message
+    associatedtype Request: Codable
+    associatedtype Response: Codable
 }
 public protocol CallPisteService: PisteService {}
 public protocol UploadPisteService: PisteService {}

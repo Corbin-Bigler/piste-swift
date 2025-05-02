@@ -19,16 +19,6 @@ struct PisteGetInformationHandler: CallPisteHandler {
     }
     
     func handle(request: Google_Protobuf_Empty) async throws -> PisteGetInformationResponse {
-        var information: [String : PisteServiceInformation] = [:]
-        for handler in server.handlers.values {
-            var serviceInfo = PisteServiceInformation()
-            serviceInfo.title = handler.title
-            serviceInfo.description_p = handler.description
-            information[handler.path] = serviceInfo
-        }
-
-        var response = PisteGetInformationResponse()
-        response.information = information
-        return response
+        fatalError()
     }
 }
