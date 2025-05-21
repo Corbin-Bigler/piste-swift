@@ -1,13 +1,22 @@
 {
-  "originHash" : "9c611031aaa6baa244903084b45ce957e7c76f54d2fbaad2932f93e2d8db5989",
+  "originHash" : "f11f6b8cf403a5b5ac608076a9e5301e4ea2f764f6c4d5f7d7d8b547c8a50e6e",
   "pins" : [
     {
-      "identity" : "swift-protobuf",
+      "identity" : "swift-logger",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/apple/swift-protobuf.git",
+      "location" : "https://github.com/Corbin-Bigler/swift-logger.git",
       "state" : {
-        "revision" : "d72aed98f8253ec1aa9ea1141e28150f408cf17f",
-        "version" : "1.29.0"
+        "revision" : "4dddfb2610f9b484648ca1e01a39d09d3b9f2163",
+        "version" : "0.2.2"
+      }
+    },
+    {
+      "identity" : "swiftcbor",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/valpackett/SwiftCBOR.git",
+      "state" : {
+        "branch" : "master",
+        "revision" : "ea5ece79b0efde241495bfaa74eccceeffc382bc"
       }
     }
   ],

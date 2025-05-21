@@ -2,7 +2,7 @@
 //  SafeThrowingContinuation.swift
 //  piste-swift
 //
-//  Created by Corbin Bigler on 4/27/25.
+//  Created by Corbin Bigler on 4/30/25.
 //
 
 import Foundation
@@ -60,9 +60,11 @@ func withSafeThrowingContinuation<T>(
     isolation: isolated (any Actor)? = nil,
     function: String = #function,
     _ body: @escaping (SafeThrowingContinuation<T>) -> Void
-) async throws -> T {
+) async throws -> sending T {
     try await withCheckedThrowingContinuation(isolation: isolation, function: function) { continuation in
         let safeContinuation = SafeThrowingContinuation(continuation)
         body(safeContinuation)
     }
 }
+
+//@inlinable public func withCheckedThrowingContinuation<T>(isolation: isolated (any Actor)? = #isolation, function: String = #function, _ body: (CheckedContinuation<T, any Error>) -> Void) async throws -> sending T
