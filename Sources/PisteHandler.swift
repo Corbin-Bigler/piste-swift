@@ -21,3 +21,4 @@ public protocol PisteCallHandler: PisteHandler, RPCCallHandler where Service: RP
 public protocol PisteDownloadHandler: PisteHandler, RPCDownloadHandler where Service: RPCDownloadService {}
 public protocol PisteUploadHandler: PisteHandler, RPCUploadHandler where Service: RPCUploadService {}
 public protocol PisteChannelHandler: PisteHandler, RPCChannelHandler where Service: RPCChannelService {}
+

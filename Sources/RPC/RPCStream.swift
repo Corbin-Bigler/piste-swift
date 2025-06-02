@@ -67,4 +67,3 @@ public struct RPCStream<Outbound, Inbound>: RPCChannelStream, RPCInboundStream, 
         try await openCallback()
     }
 }
-
