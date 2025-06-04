@@ -7,8 +7,7 @@
 
 import Combine
 
-public protocol PisteHandler: Sendable {
-    associatedtype Service: RPCService
+public protocol PisteHandler: Sendable, RPCHandler {
     var title: String { get }
     var description: String { get }
     var deprecated: Bool { get }

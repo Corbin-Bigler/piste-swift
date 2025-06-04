@@ -14,22 +14,8 @@ final actor PisteServer {
     private let packetLayer: PistePacketLayer
     private let logger: Logger
     
-//    private var callHandlers: [String : any PisteCallHandler] = [:]
-//    private var downloadHandlers: [String : any PisteDownloadHandler] = [:]
-//    private var uploadHandlers: [String : any PisteUploadHandler] = [:]
-//    private var channelHandlers: [String : any PisteChannelHandler] = [:]
     var handlers: [String : any PisteHandler] = [:]
     var streams: [String : [UInt64 : Any]] = [:]
-//    var handlers: [String : any PisteHandler] {
-//        var merged: [String: any PisteHandler] = [:]
-//        
-//        for (key, handler) in callHandlers { merged[key] = handler as any PisteHandler }
-//        for (key, handler) in downloadHandlers { merged[key] = handler as any PisteHandler }
-//        for (key, handler) in uploadHandlers { merged[key] = handler as any PisteHandler }
-//        for (key, handler) in channelHandlers { merged[key] = handler as any PisteHandler }
-//        
-//        return merged
-//    }
 
     private var maximumPacketSize: Int
     public func setMaximumPacketSize(_ value: Int) async {
@@ -60,6 +46,8 @@ final actor PisteServer {
                             let response = try await callHandler.decodeAndHandle(from: data.frame)
                             try await self.send(payload: response, requestId: data.requestId, serviceId: data.serviceId)
                         }
+                    } else if let callHandler = handler as? any PisteDownloadHandler {
+                        
                     }
                 }
             }
@@ -70,12 +58,13 @@ final actor PisteServer {
         return try CodableCBORDecoder().decode(Service.Request.self, from: data)
     }
 
-    public func register<Handler: PisteCallHandler>(_ handler: Handler) throws {
-        try validateHandler(handler.id)
+    public func register<Handler: PisteCallHandler>(_ handler: Handler) throws { try _register(handler) }
+    public func register<Handler: PisteDownloadHandler>(_ handler: Handler) throws { try _register(handler) }
+    public func register<Handler: PisteUploadHandler>(_ handler: Handler) throws { try _register(handler) }
+    public func register<Handler: PisteChannelHandler>(_ handler: Handler) throws { try _register(handler) }
+    private func _register<Handler: PisteHandler>(_ handler: Handler) throws {
+        if handlers.keys.contains(handler.id) { throw PisteServerError.serviceAlreadyRegistered }
         handlers[handler.id] = handler
-    }
-    private func validateHandler(_ id: String) throws {
-        if handlers.keys.contains(id) { throw PisteServerError.serviceAlreadyRegistered }
     }
     
     public func handle(data: Data) async {

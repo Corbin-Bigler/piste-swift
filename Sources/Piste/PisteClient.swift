@@ -55,11 +55,15 @@ final actor PisteClient {
     }
     
     private func handleFrame(_ data: PistePacketLayer.FrameData) {
-        if let subject = requestSubjects[data.serviceId]?[data.requestId] {
-            
+        do {
+            if let (subject, service) = requestSubjects[data.serviceId]?[data.requestId] {
+                try service.sendFrameData(data, subject: subject)
+            }
+        } catch {
+            Logger.fault(error)
         }
     }
-    
+
     public func call<Service: RPCCallService>(_ request: Service.Request, for service: Service.Type) async throws -> Service.Response {
         let requestId = getRequestId(for: service)
         return try await withCheckedThrowingContinuation { continuation in
@@ -69,11 +73,10 @@ final actor PisteClient {
                 Task {
                     if case .payload(let payload) = frame {
                         continuation.resume(returning: payload)
-                        await self.removeRequestCancellable(serviceId: service.id, requestId: requestId)
                     } else if case .error(let error) = frame {
                         continuation.resume(throwing: error)
-                        await self.removeRequestCancellable(serviceId: service.id, requestId: requestId)
                     }
+                    await self.removeRequestCancellable(serviceId: service.id, requestId: requestId)
                 }
             }
             requestCancellables[service.id, default: [:]][requestId] = cancellable
@@ -108,4 +111,20 @@ final actor PisteClient {
 
 enum PisteClientError: Swift.Error {
     case maximumPacketSizeTooSmall
+    case internalError
+}
+
+private extension RPCService {
+    static func sendFrameData(_ data: PistePacketLayer.FrameData, subject: Any) throws {
+        guard let subject = subject as? PassthroughSubject<PisteFrame<Response>, Never> else {
+            throw PisteClientError.internalError
+        }
+        
+        let decoder = CodableCBORDecoder()
+        switch data.type {
+        case .payload: subject.send(.payload(try decoder.decode(Response.self, from: data.frame)))
+        case .stream: subject.send(.stream(try decoder.decode(PisteStreamFrame.self, from: data.frame)))
+        case .error: subject.send(.error(try decoder.decode(PisteErrorFrame.self, from: data.frame)))
+        }
+    }
 }
