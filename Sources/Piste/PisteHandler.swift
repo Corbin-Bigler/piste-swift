@@ -13,9 +13,6 @@ public protocol PisteHandler: Sendable {
     var description: String { get }
     var deprecated: Bool { get }
 }
-extension PisteHandler {
-    var id: String { Service.id }
-}
 
 public protocol PisteCallHandler: PisteHandler, RPCCallHandler where Service: RPCCallService {}
 public protocol PisteDownloadHandler: PisteHandler, RPCDownloadHandler where Service: RPCDownloadService {}

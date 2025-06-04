@@ -6,7 +6,5 @@
 //
 
 struct PisteStreamFrame: Codable, Sendable {
-    let id: String
-    let request: Int
     let action: PisteStreamAction
 }

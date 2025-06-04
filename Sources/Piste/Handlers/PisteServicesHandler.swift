@@ -29,6 +29,6 @@ final class PisteServicesHandler: PisteCallHandler {
     }
     
     func handle(request: PisteEmpty) async throws -> [String : PisteServicesService.ServiceInformation] {
-        return server.handlers.mapValues { .init(title: $0.title, description: $0.description) }
+        return await server.handlers.mapValues { .init(title: $0.title, description: $0.description) }
     }
 }

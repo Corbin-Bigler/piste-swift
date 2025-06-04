@@ -23,5 +23,9 @@ let package = Package(
                 .product(name: "Logger", package: "swift-logger")
             ]
         ),
+        .testTarget(
+            name: "PisteTests",
+            dependencies: ["Piste"]
+        ),
     ]
 )
