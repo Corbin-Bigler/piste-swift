@@ -5,16 +5,22 @@
 //  Created by Corbin Bigler on 6/4/25.
 //
 
-enum PisteFrame<Payload: Sendable> {
-    case payload(Payload)
-    case stream(PisteStreamFrame)
-    case error(PisteErrorFrame)
+import SwiftCBOR
+import Foundation
+
+struct PisteFrame {
+    let serviceId: String
+    let requestId: UInt64
+    let payload: PistePayload<Sendable & Codable>
     
-    var type: PisteFrameType {
-        switch self {
-        case .payload(_): return .payload
-        case .stream(_): return .stream
-        case .error(_): return .error
+    func packets(maxSize: Int = 1400) throws -> [Data] {
+        let encoder = CodableCBOREncoder()
+        let encodedPayload = switch payload {
+        case .content(let payload): try encoder.encode(payload)
+        case .stream(let payload): try encoder.encode(payload)
+        case .error(let payload): try encoder.encode(payload)
         }
+
+        return try PisteFrameData(serviceId: serviceId, requestId: requestId, type: payload.type, payload: encodedPayload).packets(maxSize: maxSize)
     }
 }

@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct SignalableAsyncStream<Element>: AsyncSequence {
+struct SignalableAsyncStream<Element: Sendable>: AsyncSequence, Sendable {
     let stream: AsyncStream<Element>
     let onStart: @Sendable () -> Void
     

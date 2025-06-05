@@ -11,7 +11,7 @@ import Logger
 import SwiftCBOR
 
 final actor PisteServer {
-    private let packetLayer: PistePacketLayer
+    private let aggregator: PistePacketAggregator
     private let logger: Logger
     
     var handlers: [String : any PisteHandler] = [:]
@@ -20,7 +20,6 @@ final actor PisteServer {
     private var maximumPacketSize: Int
     public func setMaximumPacketSize(_ value: Int) async {
         self.maximumPacketSize = value
-        await packetLayer.setMaximumPacketSize(value)
     }
     
     private let _onData = PassthroughSubject<Data, Never>()
@@ -35,19 +34,20 @@ final actor PisteServer {
     
     init(maximumPacketSize: Int = 1400, logger: Logger = Logger.shared) {
         self.maximumPacketSize = maximumPacketSize
-        self.packetLayer = PistePacketLayer(maximumPacketSize: maximumPacketSize)
+        self.aggregator = PistePacketAggregator()
         self.logger = logger
                 
         Task {
-            for await data in await packetLayer.onFrame {
-                if let handler = await handlers[data.serviceId] {
+            for await frame in await aggregator.onFrame {
+                if frame.type == .stream {
+                    
+                }
+                if let handler = await handlers[frame.serviceId] {
                     if let callHandler = handler as? any PisteCallHandler {
                         Task.detached {
-                            let response = try await callHandler.decodeAndHandle(from: data.frame)
-                            try await self.send(payload: response, requestId: data.requestId, serviceId: data.serviceId)
+                            let response = try await callHandler.decodeAndHandle(from: frame.payload)
+                            try await self.send(.init(serviceId: frame.serviceId, requestId: frame.requestId, payload: .content(response)))
                         }
-                    } else if let callHandler = handler as? any PisteDownloadHandler {
-                        
                     }
                 }
             }
@@ -68,23 +68,13 @@ final actor PisteServer {
     }
     
     public func handle(data: Data) async {
-        await packetLayer.handle(data: data)
+        await aggregator.handle(data: data)
     }
     
-    private func send<Payload: Encodable & Sendable>(payload: Payload, requestId: UInt64, serviceId: String) async throws {
-        let packets = try await packetLayer.makePayloadPackets(payload: payload, requestId: requestId, serviceId: serviceId)
-        send(packets: packets)
-    }
-    private func send(action: PisteStreamAction, requestId: UInt64, serviceId: String) async throws {
-        let packets = try await packetLayer.makeStreamPackets(action: action, requestId: requestId, serviceId: serviceId)
-        send(packets: packets)
-    }
-    private func send(code: String, message: String?, requestId: UInt64, serviceId: String) async throws {
-        let packets = try await packetLayer.makeErrorPackets(code: code, message: message, requestId: requestId, serviceId: serviceId)
-        send(packets: packets)
-    }
-    private func send(packets: [Data]) {
-        for packet in packets { _onData.send(packet) }
+    private func send(_ frame: PisteFrame) throws {
+        for packet in try frame.packets(maxSize: maximumPacketSize) {
+            _onData.send(packet)
+        }
     }
 }
 

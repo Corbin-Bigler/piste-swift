@@ -21,19 +21,9 @@ struct PistePacketLayerTests {
     }
 
     @Test
-    func testSetMaximumPacketSizeDoesNotCrash() async {
-        let layer = PistePacketLayer(maximumPacketSize: 128)
-        await layer.setMaximumPacketSize(512)
-        // no assertion needed: just verifying no crash
-        #expect(true)
-    }
-
-    @Test
-    func testMakePayloadPacketsChunksCorrectly() async throws {
-        let layer = PistePacketLayer(maximumPacketSize: 64)
-
-        let payload = MockService.Response(message: String(repeating: "x", count: 100))
-        let packets = try await layer.makePayloadPackets(payload: payload, requestId: 42, serviceId: MockService.id.self)
+    func testMakeContentPacketsChunksCorrectly() async throws {
+        let content = MockService.Response(message: String(repeating: "x", count: 100))
+        let packets = try PisteFrame(serviceId: MockService.id, requestId: 42, payload: .content(content)).packets(maxSize: 64)
 
         #expect(packets.count > 1)
     }
@@ -48,16 +38,10 @@ struct PistePacketLayerTests {
             }
         }
 
-        let layer = PistePacketLayer(maximumPacketSize: 16)
-
         do {
-            _ = try await layer.makePayloadPackets(
-                payload: HugeHeaderService.Response(data: "hi"),
-                requestId: 1,
-                serviceId: HugeHeaderService.id
-            )
+            _ = try PisteFrame(serviceId: HugeHeaderService.id, requestId: 1, payload: .content(HugeHeaderService.Response(data: "hi"))).packets(maxSize: 64)
             #expect(Bool(false), "Should have thrown due to small max packet size")
-        } catch let error as PisteClientError {
+        } catch let error as PisteFrameError {
             #expect(error == .maximumPacketSizeTooSmall)
         } catch {
             #expect(Bool(false), "Unexpected error: \(String(describing: error))")
@@ -66,40 +50,39 @@ struct PistePacketLayerTests {
 
     @Test
     func testReassemblesChunksAndEmitsFrame() async throws {
-        let layer = PistePacketLayer(maximumPacketSize: 64)
-        let payload = MockService.Response(message: "TestChunkingData")
+        let layer = PistePacketAggregator()
+        let content = MockService.Response(message: "TestChunkingData")
         let requestId: UInt64 = 999
 
-        let packets = try await layer.makePayloadPackets(payload: payload, requestId: requestId, serviceId: MockService.id)
+        let packets = try PisteFrame(serviceId: MockService.id, requestId: requestId, payload: .content(content)).packets(maxSize: 64)
         var iterator = await layer.onFrame.makeAsyncIterator()
 
         for packet in packets {
             await layer.handle(data: packet)
         }
 
-        if let data = await iterator.next() {
-            let decoded = try CodableCBORDecoder().decode(MockService.Response.self, from: data.frame)
-            #expect(decoded == payload)
+        if let frame = await iterator.next() {
+            let decoded = try CodableCBORDecoder().decode(MockService.Response.self, from: frame.payload)
+            #expect(decoded == content)
         } else {
-            #expect(Bool(false), "Expected decoded payload")
+            #expect(Bool(false), "Expected decoded content")
         }
     }
 
     @Test
     func testMakeStreamPacketContainsFinalPacketID() async throws {
-        let layer = PistePacketLayer(maximumPacketSize: 128)
         let action = PisteStreamAction.open
-        let packets = try await layer.makeStreamPackets(action: action, requestId: 42, serviceId: MockService.id)
+        let requestId: UInt64 = 42
+        let packets = try PisteFrame(serviceId: MockService.id, requestId: requestId, payload: .stream(.init(action: action))).packets(maxSize: 128)
 
         let last = packets.last!
-        let packetID = last[UInt64(42).uleb128.count + UInt64(MockService.id.utf8.count).uleb128.count + MockService.id.utf8.count]
-        #expect(packetID == PisteFrameType.stream.finalPacketId)
+        let packetID = last[requestId.uleb128.count + UInt64(MockService.id.utf8.count).uleb128.count + MockService.id.utf8.count]
+        #expect(packetID == PistePayloadType.stream.finalPacketId)
     }
 
     @Test
     func testMakeErrorPacketEmitsProperly() async throws {
-        let layer = PistePacketLayer(maximumPacketSize: 128)
-        let packets = try await layer.makeErrorPackets(code: "oops", message: "Something went wrong", requestId: 55, serviceId: MockService.id)
+        let packets = try PisteFrame(serviceId: MockService.id, requestId: 55, payload: .error(.init(code: "oops", message: "Something went wrong"))).packets(maxSize: 128)
 
         #expect(packets.count > 0)
     }

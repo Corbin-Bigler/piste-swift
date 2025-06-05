@@ -2,61 +2,202 @@
 //  RPCStream.swift
 //  Lion Energy
 //
-//  Created by Corbin Bigler on 5/17/25.
+//  Created by Corbin Bigler on 5/20/25.
 //
 
 import Combine
 
-public struct RPCStream<Outbound: Sendable, Inbound: Sendable>: RPCClientStream, RPCInboundStream, RPCOutboundStream {
-    private let _onValue: (AsyncStream<Inbound>)?
-    public var onValue: AsyncStream<Inbound> { _onValue! }
-    private let _onClose: (AsyncStream<RPCInboundStreamClosure>)?
-    public var onClose: AsyncStream<RPCInboundStreamClosure> { _onClose! }
-    private let _onComplete: (AsyncStream<RPCOutboundStreamCompletion<Inbound>>)?
-    public var onComplete: AsyncStream<RPCOutboundStreamCompletion<Inbound>> { _onComplete! }
+public enum RPCUploadCompletion<Inbound: Sendable>: Sendable {
+    case remote(RPCError)
+    case local(Swift.Error)
+    case payload(Inbound)
+}
 
-    private let sendCallback: ((Outbound) -> Void)?
-    private let openCallback: () async throws -> Void
-    private let closeCallback: (RPCError) -> Void
+public enum RPCStreamCompletion: Sendable {
+    case remote(RPCError)
+    case local(Swift.Error)
+    case completed
+}
+
+public struct RPCServerDownloadStream<Outbound: Sendable>: Sendable {
+    private let _onComplete: Promise<RPCStreamCompletion>
+    public var onComplete: RPCStreamCompletion {
+        get async { await _onComplete.value }
+    }
+
+    private let sendHandler: @Sendable (Outbound) -> Void
+    private let closeHandler: @Sendable (RPCError) -> Void
+    
+    init(
+        onComplete: Promise<RPCStreamCompletion>,
+        sendHandler: @Sendable @escaping (Outbound) -> Void,
+        closeHandler: @Sendable @escaping (RPCError) -> Void
+    ) {
+        self._onComplete = onComplete
+        self.sendHandler = sendHandler
+        self.closeHandler = closeHandler
+    }
+    
+    public func send(_ value: Outbound) {
+        sendHandler(value)
+    }
+    public func close(_ reason: RPCError) {
+        closeHandler(reason)
+    }
+}
+public struct RPCServerUploadStream<Inbound: Sendable, Outbound: Sendable>: Sendable {
+    public let onValue: AsyncStream<Inbound>
+    private let _onComplete: Promise<RPCStreamCompletion>
+    public var onComplete: RPCStreamCompletion {
+        get async { await _onComplete.value }
+    }
+
+    private let completeHandler: @Sendable (Outbound) -> Void
+    private let closeHandler: @Sendable (RPCError) -> Void
     
     init(
         onValue: AsyncStream<Inbound>,
-        onClose: AsyncStream<RPCInboundStreamClosure>,
-        sendCallback: @escaping (Outbound) -> Void,
-        openCallback: @escaping () async throws -> Void,
-        closeCallback: @escaping (RPCError) -> Void
+        onComplete: Promise<RPCStreamCompletion>,
+        completeHandler: @Sendable @escaping (Outbound) -> Void,
+        closeHandler: @Sendable @escaping (RPCError) -> Void
     ) {
-        self._onValue = onValue
-        self._onClose = onClose
-        self._onComplete = nil
-        self.sendCallback = sendCallback
-        self.openCallback = openCallback
-        self.closeCallback = closeCallback
-    }
-    init(
-        onComplete: AsyncStream<RPCOutboundStreamCompletion<Inbound>>,
-        sendCallback: @escaping (Outbound) -> Void,
-        openCallback: @escaping () async throws -> Void,
-        closeCallback: @escaping (RPCError) -> Void
-    ) {
-        self._onValue = nil
-        self._onClose = nil
+        self.onValue = onValue
         self._onComplete = onComplete
-        self.sendCallback = sendCallback
-        self.openCallback = openCallback
-        self.closeCallback = closeCallback
+        self.completeHandler = completeHandler
+        self.closeHandler = closeHandler
     }
-
-    public func finish(_ outbound: Outbound) {
-        sendCallback?(outbound)
-    }
-    public func send(_ outbound: Outbound) {
-        sendCallback?(outbound)
-    }
-    public func open() async throws {
-        try await openCallback()
+    
+    public func complete(_ value: Outbound) {
+        completeHandler(value)
     }
     public func close(_ reason: RPCError) {
-        closeCallback(reason)
+        closeHandler(reason)
+    }
+}
+
+public struct RPCServerChannelStream<Inbound: Sendable, Outbound: Sendable>: Sendable {
+    public let onValue: AsyncStream<Inbound>
+    private let _onComplete: Promise<RPCStreamCompletion>
+    public var onComplete: RPCStreamCompletion {
+        get async { await _onComplete.value }
+    }
+
+    private let sendHandler: @Sendable (Outbound) -> Void
+    private let closeHandler: @Sendable (RPCError) -> Void
+    
+    init(
+        onValue: AsyncStream<Inbound>,
+        onComplete: Promise<RPCStreamCompletion>,
+        sendHandler: @Sendable @escaping (Outbound) -> Void,
+        closeHandler: @Sendable @escaping (RPCError) -> Void
+    ) {
+        self.onValue = onValue
+        self._onComplete = onComplete
+        self.sendHandler = sendHandler
+        self.closeHandler = closeHandler
+    }
+    
+    public func send(_ value: Outbound) {
+        sendHandler(value)
+    }
+    public func close(_ reason: RPCError) {
+        closeHandler(reason)
+    }
+}
+
+public struct RPCClientDownloadStream<Inbound: Sendable>: Sendable {
+    public let onValue: AsyncStream<Inbound>
+    private let _onComplete: Promise<RPCStreamCompletion>
+    public var onComplete: RPCStreamCompletion {
+        get async { await _onComplete.value }
+    }
+
+    private let closeHandler: @Sendable (RPCError) -> Void
+    private let openHandler: @Sendable () async throws -> Void
+    
+    init(
+        onValue: AsyncStream<Inbound>,
+        onComplete: Promise<RPCStreamCompletion>,
+        closeHandler: @Sendable @escaping (RPCError) -> Void,
+        openHandler: @Sendable @escaping () async throws -> Void
+    ) {
+        self.onValue = onValue
+        self._onComplete = onComplete
+        self.closeHandler = closeHandler
+        self.openHandler = openHandler
+    }
+
+    public func close(_ reason: RPCError) {
+        closeHandler(reason)
+    }
+    public func open() async throws {
+        try await openHandler()
+    }
+}
+public struct RPCClientUploadStream<Inbound: Sendable, Outbound: Sendable>: Sendable {
+    private let _onComplete: Promise<RPCUploadCompletion<Inbound>>
+    public var onComplete: RPCUploadCompletion<Inbound> {
+        get async { await _onComplete.value }
+    }
+
+    private let sendHandler: @Sendable (Outbound) -> Void
+    private let closeHandler: @Sendable (RPCError) -> Void
+    private let openHandler: @Sendable () async throws -> Void
+    
+    init(
+        onComplete: Promise<RPCUploadCompletion<Inbound>>,
+        sendHandler: @Sendable @escaping (Outbound) -> Void,
+        closeHandler: @Sendable @escaping (RPCError) -> Void,
+        openHandler: @Sendable @escaping () async throws -> Void
+    ) {
+        self._onComplete = onComplete
+        self.sendHandler = sendHandler
+        self.closeHandler = closeHandler
+        self.openHandler = openHandler
+    }
+    
+    public func send(_ value: Outbound) {
+        sendHandler(value)
+    }
+    public func close(_ reason: RPCError) {
+        closeHandler(reason)
+    }
+    public func open() async throws {
+        try await openHandler()
+    }
+}
+public struct RPCClientChannelStream<Inbound: Sendable, Outbound: Sendable>: Sendable {
+    public let onValue: AsyncStream<Inbound>
+    private let _onComplete: Promise<RPCStreamCompletion>
+    public var onComplete: RPCStreamCompletion {
+        get async { await _onComplete.value }
+    }
+
+    private let sendHandler: @Sendable (Outbound) -> Void
+    private let closeHandler: @Sendable (RPCError) -> Void
+    private let openHandler: @Sendable () async throws -> Void
+    
+    init(
+        onValue: AsyncStream<Inbound>,
+        onComplete: Promise<RPCStreamCompletion>,
+        sendHandler: @Sendable @escaping (Outbound) -> Void,
+        closeHandler: @Sendable @escaping (RPCError) -> Void,
+        openHandler: @Sendable @escaping () async throws -> Void
+    ) {
+        self.onValue = onValue
+        self._onComplete = onComplete
+        self.sendHandler = sendHandler
+        self.closeHandler = closeHandler
+        self.openHandler = openHandler
+    }
+    
+    public func send(_ value: Outbound) {
+        sendHandler(value)
+    }
+    public func close(_ reason: RPCError) {
+        closeHandler(reason)
+    }
+    public func open() async throws {
+        try await openHandler()
     }
 }

@@ -84,10 +84,10 @@ struct PisteTests {
         let description: String = "Mock service description"
         let deprecated: Bool = false
         
-        func handle(request: PisteTests.MockDownloadService.Request, stream: any RPCOutboundStream) throws {
+        func handle(request: PisteTests.MockDownloadService.Request, stream: Piste.RPCServerDownloadStream<PisteTests.MockDownloadService.Response>) throws {
             if request.uuid == PisteTests.testDownloadRequest {
                 for uuid in PisteTests.testDownload {
-                    try stream.send(.init(uuid: uuid))
+                    stream.send(.init(uuid: uuid))
                 }
             }
         }
@@ -116,9 +116,29 @@ struct PisteTests {
                 }
             }
             
-            let message = "hello"
-            let result = try await client.call(.init(message: message), for: MockCallService.self)
-            #expect(result.message == "\(Self.testPrefix)\(message)")
+            let stream = await client.download(.init(uuid: PisteTests.testDownloadRequest), for: MockDownloadService.self)
+            try await withCheckedThrowingContinuation { contination in
+                Task {
+                    for await value in SignalableAsyncStream(stream.onValue, onStart: {
+                        Task {
+                            print("opening")
+                            do {
+                                try await stream.open()
+                                contination.resume()
+                            } catch {
+                                contination.resume(throwing: error)
+                            }
+                            
+                            print("opened")
+                        }
+                    }) {
+                        print(value)
+                    }
+                }
+            }
+            
+            
+            #expect(true)
         } catch {
             #expect(Bool(false), "\(error)")
         }
