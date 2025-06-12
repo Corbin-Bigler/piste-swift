@@ -48,6 +48,8 @@ final actor PisteServer {
                             let response = try await callHandler.decodeAndHandle(from: frame.payload)
                             try await self.send(.init(serviceId: frame.serviceId, requestId: frame.requestId, payload: .content(response)))
                         }
+                    } else if let downloadHandler = handler as? any PisteDownloadHandler {
+                        
                     }
                 }
             }

@@ -9,7 +9,7 @@ enum PisteServicesService: RPCCallService {
     typealias Request = PisteEmpty
     typealias Response = [String: ServiceInformation]
     
-    static let id: String = "services"
+    static let id: String = "piste-services"
     
     struct ServiceInformation: Codable, Sendable {
         let title: String
