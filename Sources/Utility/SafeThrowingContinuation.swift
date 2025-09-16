@@ -59,7 +59,7 @@ extension SafeThrowingContinuation: AnySafeThrowingContinuation {
 func withSafeThrowingContinuation<T>(
     isolation: isolated (any Actor)? = nil,
     function: String = #function,
-    _ body: @escaping (SafeThrowingContinuation<T>) -> Void
+    _ body: @Sendable @escaping (SafeThrowingContinuation<T>) -> Void
 ) async throws -> sending T {
     try await withCheckedThrowingContinuation(isolation: isolation, function: function) { continuation in
         let safeContinuation = SafeThrowingContinuation(continuation)
