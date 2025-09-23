@@ -22,8 +22,8 @@ public class PisteClient: @unchecked Sendable {
     public var onData: AnyPublisher<Data, Never> { _onData.eraseToAnyPublisher() }
     
     private var increments: [String: Int] = [:]
-    private var callContinuations: [String: [Int: AnySafeThrowingContinuation]] = [:]
-    private var openStreamContinuations: [String: [Int: SafeThrowingContinuation<Void>]] = [:]
+    private var callContinuations: [String: [Int: AnyCheckedThrowingContinuation]] = [:]
+    private var openStreamContinuations: [String: [Int: CheckedContinuation<Void, Swift.Error>]] = [:]
     private var inboundStreams: [String: [Int: any AnyInboundStream]] = [:]
     private var outboundCancellables: [String: [Int: AnyCancellable]] = [:]
     private var services: [String: any RPCService.Type] = [:]
@@ -96,7 +96,7 @@ public class PisteClient: @unchecked Sendable {
             services[service.id] = service
         }
         let requestId = getIncrement(for: service.id)
-        return try await withSafeThrowingContinuation { [self] continuation in
+        return try await withCheckedThrowingContinuation { [self] continuation in
             queue.async {
                 self.callContinuations[service.id, default: [:]][requestId] = continuation
             }
@@ -104,7 +104,7 @@ public class PisteClient: @unchecked Sendable {
             send(payload: request, request: requestId, for: service)
             Task {
                 try await Task.sleep(for: .seconds(Self.callTimeout))
-                if !continuation.isResumed {
+                if let continuation =  queue.sync(execute: {self.callContinuations[service.id]?[requestId]}) {
                     continuation.resume(throwing: Error.timeout)
                 }
             }
@@ -196,7 +196,7 @@ public class PisteClient: @unchecked Sendable {
                 inboundStream.onValueSubject.send(payloadFrame.payload)
             }
             
-            if let callContinuation = callContinuations[service.id]?[payloadFrame.request] as? SafeThrowingContinuation<Service.Response> {
+            if let callContinuation = callContinuations[service.id]?[payloadFrame.request] as? CheckedContinuation<Service.Response, Swift.Error> {
                 callContinuation.resume(returning: payloadFrame.payload)
                 callContinuations[service.id]?.removeValue(forKey: payloadFrame.request)
             }
@@ -272,7 +272,6 @@ public class PisteClient: @unchecked Sendable {
     
     private func openStream(id: String, request: Int, send: @escaping () -> Void) async throws {
         return try await withCheckedThrowingContinuation { [self] continuation in
-            let continuation = SafeThrowingContinuation(continuation)
             queue.sync {
                 openStreamContinuations[id, default: [:]][request] = continuation
             }
@@ -281,7 +280,7 @@ public class PisteClient: @unchecked Sendable {
             
             Task {
                 try await Task.sleep(for: .seconds(Self.openStreamTimeout))
-                if !continuation.isResumed {
+                if let continuation = queue.sync { openStreamContinuations[id]?[request] } {
                     continuation.resume(throwing: Error.timeout)
                 }
             }
@@ -310,3 +309,8 @@ protocol AnyInboundStream<Inbound> {
     var onCloseSubject: PassthroughSubject<RPCStreamClosure, Never> { get }
 }
 extension RPCStream: AnyInboundStream {}
+
+protocol AnyCheckedThrowingContinuation {
+    func resume(throwing error: Swift.Error)
+}
+extension CheckedContinuation: AnyCheckedThrowingContinuation where E == Swift.Error {}
