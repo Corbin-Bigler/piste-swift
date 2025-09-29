@@ -1,11 +1,12 @@
 //
 //  PisteStreamAction.swift
-//  Lion Energy
+//  Piste
 //
-//  Created by Corbin Bigler on 5/7/25.
+//  Created by Corbin Bigler on 9/17/25.
 //
 
-enum PisteStreamAction: String, Codable, Sendable {
-    case close
-    case open
+public enum PisteStreamAction: UInt8 {
+    case close = 0x00
+    case opened = 0x01
+    case closed = 0x02
 }

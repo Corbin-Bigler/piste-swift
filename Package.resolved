@@ -1,22 +1,13 @@
 {
-  "originHash" : "f11f6b8cf403a5b5ac608076a9e5301e4ea2f764f6c4d5f7d7d8b547c8a50e6e",
+  "originHash" : "6e2c9bb88ba18c1ecf187e1aadff4452cdaa6135016e7b56395855817c697e84",
   "pins" : [
     {
-      "identity" : "swift-logger",
+      "identity" : "logger-swift",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/Corbin-Bigler/swift-logger.git",
+      "location" : "https://github.com/Corbin-Bigler/logger-swift.git",
       "state" : {
-        "revision" : "4dddfb2610f9b484648ca1e01a39d09d3b9f2163",
-        "version" : "0.2.2"
-      }
-    },
-    {
-      "identity" : "swiftcbor",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/valpackett/SwiftCBOR.git",
-      "state" : {
-        "branch" : "master",
-        "revision" : "ea5ece79b0efde241495bfaa74eccceeffc382bc"
+        "revision" : "c0897a27e87700142d6e66f6e576f8cf004d1c2d",
+        "version" : "0.0.3"
       }
     }
   ],

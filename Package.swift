@@ -1,10 +1,11 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
+// The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
 
 let package = Package(
-    name: "piste-swift",
-    platforms: [.macOS(.v13), .iOS(.v16)],
+    name: "Piste",
+    platforms: [.macOS(.v13), .iOS(.v12)],
     products: [
         .library(
             name: "Piste",
@@ -12,16 +13,18 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(url: "https://github.com/valpackett/SwiftCBOR.git", branch: "master"),
-        .package(url: "https://github.com/Corbin-Bigler/swift-logger.git", from: "0.2.2"),
+        .package(url: "https://github.com/Corbin-Bigler/logger-swift.git", from: "0.0.0")
     ],
     targets: [
         .target(
             name: "Piste",
             dependencies: [
-                .product(name: "SwiftCBOR", package: "SwiftCBOR"),
-                .product(name: "Logger", package: "swift-logger")
+                .product(name: "Logger", package: "logger-swift")
             ]
+        ),
+        .testTarget(
+            name: "PisteTests",
+            dependencies: ["Piste"]
         ),
     ]
 )
