@@ -9,7 +9,7 @@ struct PisteServiceInformationService: CallPisteService {
     typealias Serverbound = Void
     typealias Clientbound = [ServiceInformation]
     
-    static let id: PisteId = 0xFFFFFFFF
+    static let id: PisteId = 0x88888888
     
     static let title: String = "Piste Service Information"
     static let description: String = "Responds with information about the currently supported services"

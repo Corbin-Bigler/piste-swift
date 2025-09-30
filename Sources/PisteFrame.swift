@@ -27,9 +27,8 @@ public enum PisteFrame {
     }
     
     var data: Data {
-        var data = Data()
+        var data = Data([type.rawValue])
         
-        data.append(contentsOf: withUnsafeBytes(of: type.rawValue.littleEndian, Array.init))
         switch self {
         case .request(let id, let payload):
             data.append(contentsOf: withUnsafeBytes(of: id.littleEndian, Array.init))
