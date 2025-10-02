@@ -8,4 +8,7 @@
 
 enum PisteInternalError: Error {
     case cancelled
+    case channelClosed
+    case unsupportedService
+    case incorrectServiceType
 }

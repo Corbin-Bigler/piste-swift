@@ -8,24 +8,20 @@
 import Foundation
 
 protocol AnyPisteChannel: Sendable {
-    func yieldInbound(data: Data, with codec: PisteCodec) async throws
-    func resumeOpened() async
     func resumeClosed(error: Error?) async
-    func resumeCompleted(data: Data, with codec: any PisteCodec) async throws
+    func sendInbound(payload: Data, server: PisteServer) async throws
+    func resumeCompleted(payload: Data, with codec: PisteCodec) async throws
+    func sendInbound(payload: Data, with codec: PisteCodec) async throws
 }
 
 extension PisteChannel: AnyPisteChannel {
-    func yieldInbound(data: Data, with codec: any PisteCodec) throws {
-        let inbound: Inbound = try PisteServer.decode(data: data, with: codec)
-        inboundContinuation.yield(inbound)
+    func sendInbound(payload: Data, server: PisteServer) async throws {
+        inboundContinuation.yield(try await server.handleDecode(payload: payload))
     }
-    func resumeOpened() async {
-        await openedContinuation.resume()
+    func resumeCompleted(payload: Data, with codec: PisteCodec) async throws {
+        await resumeCompleted(inbound: try codec.decode(payload))
     }
-    func resumeClosed(error: Error?) async {
-        await onClosed(error: error)
-    }
-    func resumeCompleted(data: Data, with codec: any PisteCodec) async throws {
-        await onCompleted(try codec.decode(data))
+    func sendInbound(payload: Data, with codec: PisteCodec) throws {
+        inboundContinuation.yield(try codec.decode(payload))
     }
 }

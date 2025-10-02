@@ -6,3 +6,6 @@
 //
 
 public protocol CallPisteService: PisteService {}
+extension CallPisteService {
+    public nonisolated static var type: PisteServiceType { .call }
+}

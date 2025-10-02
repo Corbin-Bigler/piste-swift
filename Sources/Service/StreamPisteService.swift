@@ -6,3 +6,6 @@
 //
 
 public protocol StreamPisteService: PisteService {}
+extension StreamPisteService {
+    public nonisolated static var type: PisteServiceType { .stream }
+}

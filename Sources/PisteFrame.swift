@@ -7,83 +7,132 @@
 
 import Foundation
 
-public enum PisteFrame {
-    case request(id: PisteId, payload: Data)
-    case open(id: PisteId)
-    case opened
+public enum PisteFrame: Equatable {
+    case requestCall(id: PisteId, payload: Data)
+    case requestDownload(id: PisteId, payload: Data)
+    case openUpload(id: PisteId)
+    case openStream(id: PisteId)
+    case open
     case close
-    case error(_ error: PisteError)
     case payload(_ payload: Data)
-        
+    case error(_ error: PisteError)
+    case supportedServicesRequest
+    case supportedServicesResponse(services: [PisteSupportedService])
+    
     var type: PisteFrameType {
         switch self {
-        case .request(_, _): .request
-        case .open(_): .open
-        case .opened: .opened
-        case .close: .close
-        case .error(_): .error
-        case .payload(_): .payload
+        case .requestCall: return .requestCall
+        case .requestDownload: return .requestDownload
+        case .openUpload: return .openUpload
+        case .openStream: return .openStream
+        case .open: return .open
+        case .close: return .close
+        case .payload: return .payload
+        case .error: return .error
+        case .supportedServicesRequest: return .supportedServicesRequest
+        case .supportedServicesResponse: return .supportedServicesResponse
         }
     }
     
     var data: Data {
         var data = Data([type.rawValue])
         
+        func appendInteger<T: FixedWidthInteger>(_ value: T) {
+            data.append(contentsOf: withUnsafeBytes(of: value.littleEndian, Array.init))
+        }
+        
         switch self {
-        case .request(let id, let payload):
-            data.append(contentsOf: withUnsafeBytes(of: id.littleEndian, Array.init))
+        case .requestCall(let id, let payload),
+             .requestDownload(let id, let payload):
+            appendInteger(id)
             data.append(payload)
+            
+        case .openUpload(let id),
+             .openStream(let id):
+            appendInteger(id)
+            
         case .error(let error):
-            data.append(contentsOf: withUnsafeBytes(of: error.rawValue.littleEndian, Array.init))
-        case .open(let id):
-            data.append(contentsOf: withUnsafeBytes(of: id.littleEndian, Array.init))
+            appendInteger(error.rawValue)
+            
         case .payload(let payload):
             data.append(payload)
-        case .opened, .close: break
+            
+        case .supportedServicesResponse(let services):
+            appendInteger(UInt32(services.count))
+            for service in services {
+                appendInteger(service.id)
+                data.append(UInt8(service.type.rawValue))
+            }
+            
+        case .open, .close, .supportedServicesRequest:
+            break
         }
         return data
     }
     
-    public nonisolated init?(data: Data) {
+    public init?(data: Data) {
         var cursor = data.startIndex
         
         func read<T: FixedWidthInteger>(_ type: T.Type) -> T? {
-            let byteCount = MemoryLayout<T>.size
-            guard cursor + byteCount <= data.endIndex else { return nil }
-            
-            let value = data[cursor ..< cursor + byteCount]
+            let size = MemoryLayout<T>.size
+            guard cursor + size <= data.endIndex else { return nil }
+            let value = data[cursor ..< cursor + size]
                 .enumerated()
                 .reduce(T(0)) { (result, element) in
                     let (i, byte) = element
                     return result | (T(byte) << (8 * i))
                 }
-            
-            cursor += byteCount
+            cursor += size
             return value
         }
         
-        guard let type = read(PisteFrameType.RawValue.self).flatMap(PisteFrameType.init) else {
-            return nil
-        }
+        guard let rawType = read(UInt8.self),
+              let type = PisteFrameType(rawValue: rawType) else { return nil }
         
         switch type {
-        case .request:
+        case .requestCall:
             guard let id = read(PisteId.self) else { return nil }
-            self = .request(id: id, payload: data[cursor...])
-        case .error:
-            guard let error = read(PisteError.RawValue.self).flatMap(PisteError.init) else {
-                return nil
-            }
-            self = .error(error)
+            self = .requestCall(id: id, payload: data[cursor...])
+            
+        case .requestDownload:
+            guard let id = read(PisteId.self) else { return nil }
+            self = .requestDownload(id: id, payload: data[cursor...])
+            
+        case .openUpload:
+            guard let id = read(PisteId.self) else { return nil }
+            self = .openUpload(id: id)
+            
+        case .openStream:
+            guard let id = read(PisteId.self) else { return nil }
+            self = .openStream(id: id)
+            
         case .open:
-            guard let id = read(PisteId.self) else { return nil }
-            self = .open(id: id)
-        case .payload:
-            self = .payload(data[cursor...])
-        case .opened:
-            self = .opened
+            self = .open
+            
         case .close:
             self = .close
+            
+        case .payload:
+            self = .payload(data[cursor...])
+            
+        case .error:
+            guard let raw = read(UInt16.self),
+                  let error = PisteError(rawValue: raw) else { return nil }
+            self = .error(error)
+            
+        case .supportedServicesRequest:
+            self = .supportedServicesRequest
+            
+        case .supportedServicesResponse:
+            guard let count = read(UInt32.self) else { return nil }
+            var services: [PisteSupportedService] = []
+            for _ in 0..<count {
+                guard let id = read(UInt32.self),
+                      let typeRaw = read(UInt8.self),
+                      let serviceType = PisteServiceType(rawValue: typeRaw) else { return nil }
+                services.append(PisteSupportedService(id: id, type: serviceType))
+            }
+            self = .supportedServicesResponse(services: services)
         }
     }
 }

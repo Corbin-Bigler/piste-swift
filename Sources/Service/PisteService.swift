@@ -12,12 +12,5 @@ public protocol PisteService {
     associatedtype Clientbound: Sendable
     
     nonisolated static var id: PisteId { get }
-    
-    nonisolated static var title: String { get }
-    nonisolated static var description: String { get }
-}
-public extension PisteService {
-    nonisolated var id: PisteId { Self.id }
-    nonisolated var title: String { Self.title }
-    nonisolated var description: String { Self.description }
+    nonisolated static var type: PisteServiceType { get }
 }

@@ -8,9 +8,9 @@
 public protocol PisteHandler: Sendable {
     associatedtype Service: PisteService
     
-    nonisolated static var service: Service.Type { get }
+    nonisolated var service: Service.Type { get }
 }
 
 extension PisteHandler {
-    nonisolated var id: PisteId { Service.id }
+    nonisolated var id: PisteId { service.id }
 }

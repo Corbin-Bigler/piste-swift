@@ -6,3 +6,6 @@
 //
 
 public protocol DownloadPisteService: PisteService {}
+extension DownloadPisteService {
+    public nonisolated static var type: PisteServiceType { .download }
+}

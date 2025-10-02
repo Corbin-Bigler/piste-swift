@@ -6,8 +6,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Corbin-Bigler/logger-swift.git",
       "state" : {
-        "revision" : "c0897a27e87700142d6e66f6e576f8cf004d1c2d",
-        "version" : "0.0.3"
+        "revision" : "ef3b9c64985f8f9201471510ce749d7ee08f8403",
+        "version" : "0.0.5"
       }
     }
   ],

@@ -9,7 +9,6 @@ public struct StreamPisteHandlerChannel<Service: PisteService>: Sendable {
     private let channel: PisteChannel<Service.Serverbound, Service.Clientbound>
     
     public var inbound: AsyncStream<Service.Serverbound> { channel.inbound }
-    public var opened: Void { get async { await channel.opened } }
     public var closed: Void { get async throws { try await channel.closed } }
 
     init(channel: PisteChannel<Service.Serverbound, Service.Clientbound>) {

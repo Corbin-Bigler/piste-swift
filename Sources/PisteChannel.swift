@@ -12,17 +12,19 @@ actor PisteChannel<Inbound: Sendable, Outbound: Sendable> {
     nonisolated let inbound: AsyncStream<Inbound>
     let inboundContinuation: AsyncStream<Inbound>.Continuation
     
-    private let openedValue: AsyncValue<Void, Never>
-    let openedContinuation: AsyncValue<Void, Never>.Continuation
-    var opened: Void { get async { await openedValue.get() } }
-    
     private let closedValue: AsyncValue<Void, Error>
     private let closedContinuation: AsyncValue<Void, Error>.Continuation
     var closed: Void { get async throws { try await closedValue.get() } }
+    func resumeClosed(error: Error?) async {
+        await onClosed(error: error)
+    }
 
     private let completedValue: AsyncValue<Inbound, Never>
     private let completedContinuation: AsyncValue<Inbound, Never>.Continuation
     var completed: Inbound { get async { await completedValue.get() } }
+    func resumeCompleted(inbound: Inbound) async {
+        await onCompleted(inbound)
+    }
 
     init(
         send: @escaping @Sendable (_ value: Outbound) async throws -> Void = {_ in},
@@ -31,10 +33,6 @@ actor PisteChannel<Inbound: Sendable, Outbound: Sendable> {
         var inboundContinuation: AsyncStream<Inbound>.Continuation!
         self.inbound = AsyncStream { inboundContinuation = $0 }
         self.inboundContinuation = inboundContinuation
-
-        var openedContinuation: AsyncValue<Void, Never>.Continuation!
-        self.openedValue = AsyncValue { openedContinuation = $0 }
-        self.openedContinuation = openedContinuation
 
         var closedContinuation: AsyncValue<Void, Error>.Continuation!
         self.closedValue = AsyncValue { closedContinuation = $0 }
@@ -49,14 +47,14 @@ actor PisteChannel<Inbound: Sendable, Outbound: Sendable> {
     }
 
     func send(_ value: Outbound) async throws {
-        try await sendClosure(value)
+        try await self.sendClosure(value)
     }
+    
     func close() async {
-        await onClosed(error: nil)
         await closeClosure()
     }
     
-    func onClosed(error: Error?) async {
+    private func onClosed(error: Error?) async {
         if let error {
             await closedContinuation.resume(throwing: error)
         } else {
@@ -64,7 +62,7 @@ actor PisteChannel<Inbound: Sendable, Outbound: Sendable> {
         }
         inboundContinuation.finish()
     }
-    func onCompleted(_ value: Inbound) async {
+    private func onCompleted(_ value: Inbound) async {
         await closedContinuation.resume()
         await completedContinuation.resume(returning: value)
         inboundContinuation.finish()

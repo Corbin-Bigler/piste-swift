@@ -12,6 +12,12 @@ actor AsyncValue<T: Sendable, E: Error> {
     init(build: (AsyncValue<T, E>.Continuation) -> Void) {
         build(Continuation(asyncValue: self))
     }
+    init(value: T) {
+        self.stored = .success(value)
+    }
+    init(error: E) {
+        self.stored = .failure(error)
+    }
     
     func get() async throws -> T {
         if let value = stored {
@@ -50,7 +56,7 @@ actor AsyncValue<T: Sendable, E: Error> {
             assertionFailure("AsyncValue resumed more than once")
             return
         }
-        
+        stored = .failure(error)
         for cont in waiting {
             cont.resume(throwing: error)
         }
