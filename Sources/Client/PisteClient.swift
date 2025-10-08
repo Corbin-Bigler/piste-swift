@@ -22,8 +22,8 @@ public actor PisteClient: Sendable {
     private var supportedServices: AsyncValue<[PisteId: PisteServiceType], any Error>? = nil
     private var supportedServicesContinuation: AsyncValue<[PisteId: PisteServiceType], any Error>.Continuation? = nil
 
-    public init(codec: PisteCodec, logger: Logger = Logger.shared) {
-        self.logger = logger.tagged(tag: "PisteClient")
+    public init(codec: PisteCodec, logger: Logger.Tagged = Logger.shared.tagged(tag: "PisteClient")) {
+        self.logger = logger
         self.codec = codec
     }
     

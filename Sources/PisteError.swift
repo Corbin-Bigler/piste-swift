@@ -10,6 +10,5 @@ public enum PisteError: UInt16, Error {
     case decodingFailed = 0x01
     case unsupportedService = 0x02
     case channelClosed = 0x03
-    case unsupportedFrameType = 0x05
+    case unsupportedFrameType = 0x04
 }
-

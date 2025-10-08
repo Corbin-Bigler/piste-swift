@@ -17,9 +17,9 @@ public actor PisteServer: Sendable {
     private let handlers: [PisteId: any PisteHandler]
     private var channels: [PisteExchange: AnyPisteChannel] = [:]
     
-    public init(codec: PisteCodec, handlers: [any PisteHandler], logger: Logger = Logger.shared) {
+    public init(codec: PisteCodec, handlers: [any PisteHandler], logger: Logger.Tagged = Logger.shared.tagged(tag: "PisteClient")) {
         self.codec = codec
-        self.logger = logger.tagged(tag: "PisteServer")
+        self.logger = logger
         
         self.handlers = handlers.reduce(into: [:]) { dict, handler in
             guard dict[handler.id] == nil else {
