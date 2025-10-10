@@ -27,8 +27,8 @@ actor PisteChannel<Inbound: Sendable, Outbound: Sendable> {
     }
 
     init(
+        close: @escaping @Sendable () async -> Void,
         send: @escaping @Sendable (_ value: Outbound) async throws -> Void = {_ in},
-        close: @escaping @Sendable () async -> Void
     ) {
         var inboundContinuation: AsyncStream<Inbound>.Continuation!
         self.inbound = AsyncStream { inboundContinuation = $0 }

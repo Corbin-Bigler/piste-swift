@@ -212,10 +212,10 @@ private extension StreamPisteHandler {
         with codec: PisteCodec
     ) async throws -> AnyPisteChannel {
         let channel = PisteChannel<Service.Serverbound, Service.Clientbound>(
+            close: { await close() },
             send: {
                 try await send(try codec.encode($0))
             },
-            close: { await close() }
         )
         try await handle(channel: StreamPisteHandlerChannel(channel: channel))
         
@@ -229,8 +229,8 @@ private extension UploadPisteHandler {
         with codec: PisteCodec
     ) async throws -> AnyPisteChannel {
         let channel = PisteChannel<Service.Serverbound, Service.Clientbound>(
+            close: { await close() },
             send: { try await send(try codec.encode($0)) },
-            close: { await close() }
         )
         try await handle(channel: UploadPisteHandlerChannel(channel: channel))
         
@@ -246,8 +246,8 @@ private extension DownloadPisteHandler {
     ) async throws -> AnyPisteChannel {
         let request: Service.Serverbound = try await server.handleDecode(payload: payload)
         let channel = PisteChannel<Service.Serverbound, Service.Clientbound>(
-            send: { try await send(try server.codec.encode($0)) },
-            close: close
+            close: close,
+            send: { try await send(try server.codec.encode($0)) }
         )
         
         try await handle(request: request, channel: DownloadPisteHandlerChannel(channel: channel))

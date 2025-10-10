@@ -115,22 +115,20 @@ public actor PisteClient: Sendable {
 
     private func handleOpen(exchange: PisteExchange) async {
         logger.info("Received Open frame - exchange: \(exchange)")
-        
-        if let openRequest = openRequests[exchange] {
-            await openRequest.resume(returning: ())
-            return
-        }
+        await openRequests[exchange]?.resume()
     }
 
     private func handleError(error: PisteError, exchange: PisteExchange) async {
         logger.info("Received Error frame - error: \(error) exchange: \(exchange)")
         
         if let payloadContinuation = payloadRequests[exchange] {
+            payloadRequests.removeValue(forKey: exchange)
             await payloadContinuation.resume(throwing: error)
             return
         }
         
         if let openContinuation = openRequests[exchange] {
+            openRequests.removeValue(forKey: exchange)
             await openContinuation.resume(throwing: error)
             return
         }
@@ -206,15 +204,15 @@ public actor PisteClient: Sendable {
         let exchange = nextExchange()
 
         let channel = PisteChannel<Service.Clientbound, Service.Serverbound>(
-            send: { [weak self] outbound in
-                guard let self, await channels[exchange] != nil else { throw PisteError.channelClosed }
-                try await send(.payload(try codec.encode(outbound)), exchange: exchange)
-            },
             close: { [weak self] in
                 guard let self, let (channel, _) = await channels[exchange] else { return }
                 await removeChannel(exchange: exchange)
                 await channel.resumeClosed(error: nil)
                 try? await send(.close, exchange: exchange)
+            },
+            send: { [weak self] outbound in
+                guard let self, await channels[exchange] != nil else { throw PisteError.channelClosed }
+                try await send(.payload(try codec.encode(outbound)), exchange: exchange)
             },
         )
         
